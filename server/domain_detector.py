@@ -35,7 +35,7 @@ def _heuristic_domain(content: str) -> Domain:
 
 
 async def detect_domain(content: str) -> Domain:
-    """Auto-detect domain from content using Grok with heuristic fallback."""
+    """Auto-detect domain from content using Gemini with heuristic fallback."""
     try:
         result = await call_grok(
             DOMAIN_DETECTION_PROMPT.format(content=content[:1000]),

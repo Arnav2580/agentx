@@ -1,10 +1,22 @@
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.set({ jurorSidebarVisible: true });
+  console.log("AI Hallucination Juror installed - works on any AI site");
 });
 
-chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab.id) {
-    return;
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "VERIFY_FROM_POPUP") {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, { type: "MANUAL_VERIFY" }, sendResponse);
+      }
+    });
+    return true;
   }
-  chrome.tabs.sendMessage(tab.id, { type: "juror.toggleSidebar" });
+  if (message.type === "VERIFY_SELECTION") {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, { type: "VERIFY_SELECTED_TEXT" }, sendResponse);
+      }
+    });
+    return true;
+  }
 });

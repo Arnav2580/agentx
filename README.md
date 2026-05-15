@@ -30,17 +30,27 @@ python -m server.main
 
 Open `http://localhost:8000/docs` for the API docs and `http://localhost:8000/health` for a quick health check.
 
+## Runtime
+
+| Component | Detail |
+|---|---|
+| Provider | Google Gemini 2.5 Flash (AI Studio) |
+| Architecture | Batched 5-agent jury - 1 API call per verify |
+| Latency | ~3.3s end-to-end |
+| Surfaces | Chrome (any AI site) · VS Code · Terminal · MCP |
+| Cost | Free tier |
+
 ## Environment
 
 Create `.env` in the project root:
 
 ```env
-GROK_API_KEY=your_api_key_here
-MODEL=grok-3-mini
+GEMINI_API_KEY=your_api_key_here
+MODEL=gemini-2.5-flash
 SERVER_PORT=8000
 ```
 
-If `GROK_API_KEY` is missing, the server falls back to lightweight heuristic checks so the demo paths still behave.
+If `GEMINI_API_KEY` is missing, the server falls back to lightweight heuristic checks so the demo paths still behave.
 
 ## CLI
 

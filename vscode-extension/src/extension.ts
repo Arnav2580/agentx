@@ -69,6 +69,9 @@ async function runVerification(
     decorationProvider: JurorDecorationProvider,
     source: string
 ): Promise<void> {
+    await sidebarProvider.reveal();
+    sidebarProvider.showLoading("Running the 5-agent jury against the active editor content.");
+
     await vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,

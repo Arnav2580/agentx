@@ -10,12 +10,17 @@
 <body>
   <div class="shell">
     <div class="header">
-      <div class="eyebrow">AI HALLUCINATION JUROR</div>
-      <button id="verify-button" class="verify-button">Verify current file / selection</button>
+      <div class="eyebrow-row">
+        <div class="eyebrow">AI HALLUCINATION JUROR</div>
+        <div id="server-status" class="server-status">Checking server</div>
+      </div>
+      <button id="verify-button" class="verify-button">Verify current file or selection</button>
+      <div class="helper">Right-click selected text or use the button above to run the jury.</div>
     </div>
     <div id="content" class="content">
       <div class="idle">
-        Waiting for a verification run.
+        <div class="idle-title">Ready to verify</div>
+        <div class="idle-copy">Open a file, select AI-generated text, and run Juror when you want a quick verdict.</div>
       </div>
     </div>
   </div>

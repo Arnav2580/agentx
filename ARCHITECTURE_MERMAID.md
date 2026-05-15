@@ -34,7 +34,7 @@ subgraph S1["Input Surfaces and Trigger Points"]
   V4["VS Code sidebar webview<br/>manual verify button"]:::surface
   C1["Chrome content script<br/>MutationObserver watches AI chat DOM"]:::surface
   C2["Chrome popup<br/>toggle sidebar and check backend"]:::surface
-  M1["External MCP client<br/>Claude Code, Grok-compatible clients, Codex CLI, other MCP-aware tools"]:::surface
+  M1["External MCP client<br/>Claude Code, Gemini-compatible clients, Codex CLI, other MCP-aware tools"]:::surface
   A1["Direct REST caller<br/>POST verify, GET history, GET stats, GET health"]:::surface
 end
 
@@ -49,9 +49,9 @@ subgraph S2["HTTP and MCP Server Boundary"]
 end
 
 subgraph S3["Configuration, Models, and Runtime State"]
-  Cfg0["server/config.py<br/>load .env and ~/.juror/.env<br/>GROK_API_KEY, MODEL, PORT, DB_PATH, LOG_PATH,<br/>thresholds, timeouts, request char limit"]:::data
+  Cfg0["server/config.py<br/>load .env and ~/.juror/.env<br/>GEMINI_API_KEY, MODEL, PORT, DB_PATH, LOG_PATH,<br/>thresholds, timeouts, request char limit"]:::data
   Cfg1["server/models.py<br/>Domain, AgentVerdict, FinalVerdict,<br/>AgentResult, VerificationRequest, VerdictResponse, HistoryEntry"]:::data
-  Env0["juror/.env<br/>GROK_API_KEY, MODEL, SERVER_PORT"]:::data
+  Env0["juror/.env<br/>GEMINI_API_KEY, MODEL, SERVER_PORT"]:::data
   Env1["~/.juror/.env<br/>optional machine-level overrides"]:::data
   Db0["~/.juror/verdicts.db<br/>SQLite verdict history"]:::data
   Log0["~/.juror/juror.log and server.log<br/>runtime logs"]:::data
@@ -80,20 +80,20 @@ end
 
 subgraph S5["Domain Detection"]
   DD0["server/domain_detector.py<br/>detect_domain(content)"]:::backend
-  DD1["Grok domain prompt<br/>return exact enum string only"]:::agent
-  DD2["Normalize Grok result<br/>lowercase and replace spaces with underscores"]:::backend
+  DD1["Gemini domain prompt<br/>return exact enum string only"]:::agent
+  DD2["Normalize Gemini result<br/>lowercase and replace spaces with underscores"]:::backend
   DD3["Domain enum cast"]:::backend
   DD4["Keyword heuristic fallback<br/>civil, mechanical, software, financial, healthcare,<br/>infrastructure, construction, general"]:::fallback
 end
 
-subgraph S6["Shared Grok Client and JSON Parsing"]
+subgraph S6["Shared Gemini Client and JSON Parsing"]
   G0["server/grok_client.py"]:::backend
-  G1["grok_available<br/>requires GROK_API_KEY"]:::backend
-  G2["call_grok(prompt, max_tokens)<br/>AsyncOpenAI chat.completions.create"]:::backend
-  G3["OpenAI-compatible client configured with<br/>base_url https://api.x.ai/v1"]:::backend
-  G4["Use config.MODEL such as grok-3-mini"]:::backend
+  G1["gemini_available<br/>requires GEMINI_API_KEY"]:::backend
+  G2["call_grok(prompt, max_tokens)<br/>Gemini generateContent request"]:::backend
+  G3["Gemini REST client configured with<br/>https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"]:::backend
+  G4["Use config.MODEL such as gemini-2.5-flash"]:::backend
   G5["Request options<br/>max_tokens, temperature 0.1"]:::backend
-  G6["response.choices[0].message.content"]:::agent
+  G6["candidates[0].content.parts[].text"]:::agent
   G7["parse_agent_json(raw)<br/>strip markdown fences, isolate first JSON object, json.loads"]:::backend
   G8["Failure modes<br/>invalid key, parse error, SDK error, timeout, empty text"]:::fallback
 end
@@ -101,7 +101,7 @@ end
 subgraph S7["Agent 1 Fact Verifier"]
   A10["server/agents/fact_verifier.py"]:::agent
   A11["Checks hallucinated packages, fake APIs, fake citations,<br/>wrong versions, fabricated standards, non-existent products"]:::agent
-  A12["Grok prompt requests strict JSON PASS or FAIL"]:::agent
+  A12["Gemini prompt requests strict JSON PASS or FAIL"]:::agent
   A13["Fallback heuristic<br/>react-query-optimizer, useOptimizedQuery,<br/>fabricated package credibility claims,<br/>adult-equivalent pediatric dosing warning"]:::fallback
   A14["Produces AgentResult id 1"]:::agent
 end
@@ -109,7 +109,7 @@ end
 subgraph S8["Agent 2 Math Validator"]
   A20["server/agents/math_validator.py"]:::agent
   A21["Checks formulas, unit conversions, numerical calculations,<br/>coefficients, exponents, dosage math, domain-specific math"]:::agent
-  A22["Grok prompt requests strict JSON PASS or FAIL"]:::agent
+  A22["Gemini prompt requests strict JSON PASS or FAIL"]:::agent
   A23["Fallback heuristic<br/>compound interest formula error,<br/>civil load factor mismatch,<br/>pediatric dose and max daily dose mismatch"]:::fallback
   A24["Produces AgentResult id 2"]:::agent
 end
@@ -117,7 +117,7 @@ end
 subgraph S9["Agent 3 Standards Checker"]
   A30["server/agents/standards_checker.py"]:::agent
   A31["Checks standards and compliance references<br/>IS codes, OWASP, NIST, HIPAA, IFRS, ASME, NFPA"]:::agent
-  A32["Grok prompt requests strict JSON PASS or FAIL"]:::agent
+  A32["Gemini prompt requests strict JSON PASS or FAIL"]:::agent
   A33["Fallback heuristic<br/>IS load guidance mismatch,<br/>software supply-chain risk from fake package,<br/>pediatric dosing guidance conflict"]:::fallback
   A34["Produces AgentResult id 3"]:::agent
 end
@@ -125,7 +125,7 @@ end
 subgraph S10["Agent 4 Logic Auditor"]
   A40["server/agents/logic_auditor.py"]:::agent
   A41["Checks reasoning chain, contradictions, missing steps,<br/>edge cases, conclusion validity, hidden assumptions"]:::agent
-  A42["Grok prompt requests strict JSON PASS or FAIL"]:::agent
+  A42["Gemini prompt requests strict JSON PASS or FAIL"]:::agent
   A43["Fallback heuristic<br/>unsafe design conclusion,<br/>adult-dose child logic flaw,<br/>monthly compounding conclusion mismatch"]:::fallback
   A44["Produces AgentResult id 4"]:::agent
 end
@@ -142,7 +142,7 @@ subgraph S12["Agent 6 Correction Agent"]
   A60["server/agents/correction_agent.py"]:::agent
   A61["Runs only when final verdict is BLOCKED"]:::agent
   A62["Receives domain, full issue list, and original content"]:::agent
-  A63["Grok correction prompt<br/>preserve intent, fix all issues, output corrected content only"]:::agent
+  A63["Gemini correction prompt<br/>preserve intent, fix all issues, output corrected content only"]:::agent
   A64["Fallback correction library<br/>software package correction,<br/>financial formula correction,<br/>healthcare dose correction,<br/>civil cautionary rewrite"]:::fallback
   A65["Returns corrected content string"]:::agent
 end
@@ -220,8 +220,8 @@ subgraph S19["Testing and Demo Scenarios"]
 end
 
 subgraph S20["External Services and Dependencies"]
-  X0["xAI Inference API<br/>OpenAI-compatible chat completions"]:::external
-  X1["openai Python SDK<br/>AsyncOpenAI pointed at https://api.x.ai/v1"]:::external
+  X0["Google Gemini API<br/>generateContent endpoint"]:::external
+  X1["httpx client<br/>POST to https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"]:::external
   X2["FastAPI and Uvicorn"]:::external
   X3["SQLite and aiosqlite"]:::external
   X4["httpx async client"]:::external
@@ -302,7 +302,7 @@ O0 --> O1 --> O2 --> DD0
 DD0 --> DD1 --> G2
 G2 --> G3 --> G4 --> G5 --> G6 --> X0
 G6 --> DD2 --> DD3 --> O3
-DD0 -->|Grok failure or invalid result| DD4 --> O3
+DD0 -->|Gemini failure or invalid result| DD4 --> O3
 
 O3 --> O4
 O4 --> A10
@@ -311,13 +311,13 @@ O4 --> A30
 O4 --> A40
 
 A10 --> A11 --> A12 --> G2
-A10 -->|Grok failure or parse error| A13 --> A14
+A10 -->|Gemini failure or parse error| A13 --> A14
 A20 --> A21 --> A22 --> G2
-A20 -->|Grok failure or parse error| A23 --> A24
+A20 -->|Gemini failure or parse error| A23 --> A24
 A30 --> A31 --> A32 --> G2
-A30 -->|Grok failure or parse error| A33 --> A34
+A30 -->|Gemini failure or parse error| A33 --> A34
 A40 --> A41 --> A42 --> G2
-A40 -->|Grok failure or parse error| A43 --> A44
+A40 -->|Gemini failure or parse error| A43 --> A44
 
 G2 --> G7
 G7 --> A14
@@ -332,7 +332,7 @@ A44 --> O5
 
 O5 --> A50
 A50 --> A51 --> A52 --> G2
-A50 -->|Grok failure or parse error| A53 --> A54
+A50 -->|Gemini failure or parse error| A53 --> A54
 G7 --> A54
 A54 --> O6
 
@@ -343,7 +343,7 @@ D1 -->|yes| O9 --> O11
 D1 -->|no| O10 --> O13
 
 O13 --> A60 --> A61 --> A62 --> A63 --> G2
-A60 -->|Grok failure| A64 --> A65
+A60 -->|Gemini failure| A64 --> A65
 G2 -->|raw corrected text| A65
 A65 --> O14 --> O11
 
@@ -418,3 +418,4 @@ P2 -->|content preview and full response JSON| Db0
 Db0 -->|history rows| F3
 Db0 -->|stats aggregation input| F4
 ```
+

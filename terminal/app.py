@@ -71,7 +71,9 @@ class JurorApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one(VerdictPanel).update("[dim]Waiting for verification...[/dim]")
+        self.query_one(AIOutputPanel).show_placeholder()
+        self.query_one("#jury-log", RichLog).write("[dim]Jury panel is ready. Verification results will stream here.[/dim]")
+        self.query_one(VerdictPanel).show_status("Waiting for verification...")
         self.load_history()
 
     @work(exclusive=False)
@@ -95,7 +97,7 @@ class JurorApp(App):
             color = AGENT_COLORS.get(agent_id, "white")
             jury_log.write(f"[{color}]Agent {agent_id} ({name}): FIRING...[/{color}]")
 
-        verdict_bar.update("[dim]Verifying...[/dim]")
+        verdict_bar.show_status("Verifying...")
 
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
@@ -107,7 +109,7 @@ class JurorApp(App):
                 data = response.json()
         except Exception as exc:
             jury_log.write(f"\n[bright_red]Error: {exc}[/bright_red]")
-            verdict_bar.update("[bright_red]Error connecting to Juror server[/bright_red]")
+            verdict_bar.show_error("Error connecting to Juror server")
             return
 
         jury_log.clear()
@@ -121,6 +123,12 @@ class JurorApp(App):
             for issue in agent.get("issues", [])[:2]:
                 jury_log.write(f"  [dim]- {issue}[/dim]")
             jury_log.write("")
+
+        issues_summary = data.get("issues_summary", [])[:4]
+        if issues_summary:
+            jury_log.write("[bold]Summary[/bold]")
+            for issue in issues_summary:
+                jury_log.write(f"  [dim]- {issue}[/dim]")
 
         final = data.get("final_verdict", "UNKNOWN")
         fail_count = int(data.get("fail_count", 0))

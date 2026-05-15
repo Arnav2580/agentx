@@ -1,18 +1,29 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="popup.css">
-  <title>Juror</title>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { width: 240px; background: #060a0f; color: #e2e8f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 14px; }
+  h3 { color: #00ff9d; font-size: 10px; letter-spacing: 2px; margin-bottom: 10px; }
+  .btn { width: 100%; background: #00ff9d12; border: 1px solid #00ff9d35; color: #00ff9d; padding: 8px; border-radius: 5px; cursor: pointer; font-family: monospace; font-size: 11px; font-weight: 700; margin-bottom: 6px; letter-spacing: 1px; }
+  .btn:hover { background: #00ff9d22; }
+  .btn-b { border-color: #00d4ff35; color: #00d4ff; background: #00d4ff10; }
+  .btn-b:hover { background: #00d4ff20; }
+  .btn-c { border-color: #ffffff15; color: #64748b; background: transparent; font-size: 10px; }
+  .status { font-size: 10px; color: #475569; margin-top: 8px; text-align: center; line-height: 1.5; white-space: pre-line; }
+  .ok { color: #34d399; } .err { color: #f87171; }
+  .shortcut { font-size: 9px; color: #334155; text-align: center; margin-top: 6px; }
+  kbd { background: #1e293b; border: 1px solid #334155; border-radius: 2px; padding: 1px 4px; font-family: monospace; font-size: 8px; }
+</style>
 </head>
 <body>
-  <div class="popup-shell">
-    <div class="title">AI Hallucination Juror</div>
-    <div id="status" class="status">Checking backend...</div>
-    <button id="toggle-sidebar" class="action">Toggle sidebar on current tab</button>
-    <div class="hint">Backend expected at <code>http://localhost:8000</code></div>
-  </div>
-  <script src="popup.js"></script>
+<h3>⬡ AI HALLUCINATION JUROR</h3>
+<button class="btn" id="btn-scan">▶ SCAN LATEST RESPONSE</button>
+<button class="btn btn-b" id="btn-sel">◈ SCAN SELECTED TEXT</button>
+<button class="btn btn-c" id="btn-dash">📊 Dashboard (localhost:8000)</button>
+<div class="status" id="status">Checking server...</div>
+<div class="shortcut">Shortcut: <kbd>Ctrl+Shift+J</kbd></div>
+<script src="popup.js"></script>
 </body>
 </html>

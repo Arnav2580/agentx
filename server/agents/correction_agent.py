@@ -107,8 +107,12 @@ Do not conclude the design is safe until the full load combinations, member chec
 
 async def run_correction_agent(content: str, domain: str, all_issues: list[str]) -> str:
     issues_text = "\n".join(f"- {issue}" for issue in all_issues)
+    fallback = _fallback_correction(content, domain)
 
-    if config.GROK_API_KEY:
+    if fallback != content:
+        return fallback
+
+    if config.GEMINI_API_KEY:
         try:
             return await call_gemini(
                 CORRECTION_PROMPT.format(
@@ -116,9 +120,9 @@ async def run_correction_agent(content: str, domain: str, all_issues: list[str])
                     all_issues=issues_text,
                     content=content,
                 ),
-                max_tokens=4000,
+                max_tokens=800,
             )
         except Exception:
             pass
 
-    return _fallback_correction(content, domain)
+    return fallback

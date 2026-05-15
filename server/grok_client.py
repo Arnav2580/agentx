@@ -1,33 +1,58 @@
 import json
 from typing import Any, Dict
 
-from openai import AsyncOpenAI
+import httpx
 
 from .config import config
 
 
 def grok_available() -> bool:
-    return bool(config.GROK_API_KEY)
+    return bool(config.GEMINI_API_KEY)
 
 
-_client = AsyncOpenAI(
-    api_key=config.GROK_API_KEY or "missing-key",
-    base_url="https://api.x.ai/v1",
-)
-
-
-async def call_grok(prompt: str, max_tokens: int = 2000) -> str:
+async def call_grok(
+    prompt: str,
+    max_tokens: int = 400,
+    json_mode: bool = False,
+    response_json_schema: Dict[str, Any] | None = None,
+) -> str:
     if not grok_available():
-        raise RuntimeError("Grok client unavailable")
+        raise RuntimeError("Gemini client unavailable")
 
-    response = await _client.chat.completions.create(
-        model=config.MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=max_tokens,
-        temperature=0.1,
-    )
-    content = response.choices[0].message.content
-    return (content or "").strip()
+    request_body: Dict[str, Any] = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": max_tokens,
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
+    }
+    if json_mode:
+        request_body["generationConfig"]["responseMimeType"] = "application/json"
+    if response_json_schema:
+        request_body["generationConfig"]["responseJsonSchema"] = response_json_schema
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.MODEL}:generateContent"
+    headers = {
+        "x-goog-api-key": config.GEMINI_API_KEY,
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(url, headers=headers, json=request_body)
+        response.raise_for_status()
+        payload = response.json()
+
+    candidates = payload.get("candidates") or []
+    if not candidates:
+        raise ValueError(f"No Gemini candidates returned: {payload}")
+
+    parts = candidates[0].get("content", {}).get("parts", [])
+    text_chunks = [part.get("text", "") for part in parts if isinstance(part, dict)]
+    content = "".join(text_chunks).strip()
+    if not content:
+        raise ValueError(f"Gemini returned empty content: {payload}")
+    return content
 
 
 def parse_agent_json(raw: str) -> Dict[str, Any]:

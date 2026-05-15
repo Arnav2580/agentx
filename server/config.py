@@ -20,9 +20,11 @@ class Config:
         default_db = juror_home / "verdicts.db"
         default_log = juror_home / "juror.log"
 
-        self.GROK_API_KEY: str = os.getenv("GROK_API_KEY", "").strip()
-        self.MODEL: str = os.getenv("MODEL", "grok-3-mini")
-        self.MAX_TOKENS: int = int(os.getenv("MAX_TOKENS", "2000"))
+        gemini_key = os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("GROK_API_KEY", "").strip()
+        self.GEMINI_API_KEY: str = gemini_key
+        self.GROK_API_KEY: str = gemini_key
+        self.MODEL: str = os.getenv("MODEL", "gemini-2.5-flash")
+        self.MAX_TOKENS: int = int(os.getenv("MAX_TOKENS", "400"))
         self.SERVER_HOST: str = os.getenv("SERVER_HOST", "0.0.0.0")
         self.SERVER_PORT: int = int(os.getenv("SERVER_PORT", "8000"))
         self.DB_PATH: str = os.getenv("DB_PATH", str(default_db))

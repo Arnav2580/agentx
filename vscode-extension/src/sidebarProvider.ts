@@ -57,6 +57,10 @@ export class JurorSidebarProvider implements vscode.WebviewViewProvider {
         this.view?.webview.postMessage({ type: "verdict", data: verdict });
     }
 
+    public showLoading(message: string): void {
+        this.view?.webview.postMessage({ type: "loading", message });
+    }
+
     public showError(message: string): void {
         this.view?.webview.postMessage({ type: "error", message });
     }

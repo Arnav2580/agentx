@@ -1,23 +1,28 @@
+const JUROR_URL = "http://localhost:8000";
+
 async function checkServer() {
-  const status = document.getElementById("status");
+  const element = document.getElementById("status");
   try {
-    const response = await fetch("http://localhost:8000/health");
-    if (!response.ok) {
-      throw new Error("unhealthy");
-    }
-    status.textContent = "Backend connected";
-    status.dataset.state = "ok";
+    const response = await fetch(`${JUROR_URL}/health`, { signal: AbortSignal.timeout(3000) });
+    const data = await response.json();
+    element.className = "status ok";
+    element.textContent = `✓ Running · ${data.model}`;
   } catch {
-    status.textContent = "Backend offline - run juror start";
-    status.dataset.state = "error";
+    element.className = "status err";
+    element.textContent = "✗ Offline\nRun: juror start";
   }
 }
 
-document.getElementById("toggle-sidebar")?.addEventListener("click", async () => {
+async function sendToTab(type) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab?.id) {
-    await chrome.tabs.sendMessage(tab.id, { type: "juror.toggleSidebar" });
-  }
-});
+  if (tab) chrome.tabs.sendMessage(tab.id, { type });
+  window.close();
+}
 
-void checkServer();
+document.getElementById("btn-scan").onclick = () => sendToTab("MANUAL_VERIFY");
+document.getElementById("btn-sel").onclick = () => sendToTab("VERIFY_SELECTED_TEXT");
+document.getElementById("btn-dash").onclick = () => {
+  chrome.tabs.create({ url: `${JUROR_URL}` });
+};
+
+checkServer();
