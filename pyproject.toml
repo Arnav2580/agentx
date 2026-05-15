@@ -20,6 +20,8 @@ dependencies = [
     "textual>=0.50.0",
     "rich>=13.0.0",
     "click>=8.1.0",
+    "watchdog>=4.0.0",
+    "win10toast>=0.9; sys_platform == 'win32'",
 ]
 
 [project.scripts]
@@ -27,3 +29,6 @@ juror = "terminal.cli:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["server", "terminal"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"server/hooks" = "server/hooks"

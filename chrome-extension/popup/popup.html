@@ -3,27 +3,173 @@
 <head>
 <meta charset="UTF-8">
 <style>
+  :root {
+    color-scheme: light dark;
+    --bg: linear-gradient(145deg, #ffffff, #f8fafc);
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --btn-bg: #f1f5f9;
+    --btn-border: #e2e8f0;
+    --btn-text: #334155;
+    --btn-hover: #e2e8f0;
+    
+    --btn-primary-bg: linear-gradient(135deg, #0f172a, #1e293b);
+    --btn-primary-border: transparent;
+    --btn-primary-text: #ffffff;
+    --btn-primary-hover: linear-gradient(135deg, #1e293b, #334155);
+    --btn-primary-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+    
+    --status-bg: rgba(255, 255, 255, 0.5);
+    --status-border: #e2e8f0;
+    --status-text: #64748b;
+    --status-ok-border: rgba(34, 197, 94, 0.4);
+    --status-ok-text: #15803d;
+    --status-err-border: rgba(239, 68, 68, 0.4);
+    --status-err-text: #b91c1c;
+    
+    --kbd-bg: #f8fafc;
+    --kbd-border: #cbd5e1;
+    --kbd-text: #475569;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: linear-gradient(145deg, #121212, #18181a);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      
+      --btn-bg: #27272a;
+      --btn-border: #3f3f46;
+      --btn-text: #e4e4e7;
+      --btn-hover: #3f3f46;
+      
+      --btn-primary-bg: linear-gradient(135deg, #10b981, #059669);
+      --btn-primary-border: transparent;
+      --btn-primary-text: #ffffff;
+      --btn-primary-hover: linear-gradient(135deg, #34d399, #10b981);
+      --btn-primary-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+      
+      --status-bg: rgba(24, 24, 27, 0.5);
+      --status-border: #3f3f46;
+      --status-text: #a1a1aa;
+      --status-ok-border: rgba(52, 211, 153, 0.3);
+      --status-ok-text: #6ee7b7;
+      --status-err-border: rgba(248, 113, 113, 0.3);
+      --status-err-text: #fca5a5;
+      
+      --kbd-bg: #27272a;
+      --kbd-border: #3f3f46;
+      --kbd-text: #e4e4e7;
+    }
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { width: 240px; background: #060a0f; color: #e2e8f0; font-family: 'Courier New', monospace; font-size: 12px; padding: 14px; }
-  h3 { color: #00ff9d; font-size: 10px; letter-spacing: 2px; margin-bottom: 10px; }
-  .btn { width: 100%; background: #00ff9d12; border: 1px solid #00ff9d35; color: #00ff9d; padding: 8px; border-radius: 5px; cursor: pointer; font-family: monospace; font-size: 11px; font-weight: 700; margin-bottom: 6px; letter-spacing: 1px; }
-  .btn:hover { background: #00ff9d22; }
-  .btn-b { border-color: #00d4ff35; color: #00d4ff; background: #00d4ff10; }
-  .btn-b:hover { background: #00d4ff20; }
-  .btn-c { border-color: #ffffff15; color: #64748b; background: transparent; font-size: 10px; }
-  .status { font-size: 10px; color: #475569; margin-top: 8px; text-align: center; line-height: 1.5; white-space: pre-line; }
-  .ok { color: #34d399; } .err { color: #f87171; }
-  .shortcut { font-size: 9px; color: #334155; text-align: center; margin-top: 6px; }
-  kbd { background: #1e293b; border: 1px solid #334155; border-radius: 2px; padding: 1px 4px; font-family: monospace; font-size: 8px; }
+  body {
+    width: 270px;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    transition: background 0.2s ease, color 0.2s ease;
+  }
+  .title {
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 800;
+    margin-bottom: 6px;
+    letter-spacing: -0.01em;
+  }
+  .subtitle {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-bottom: 18px;
+    line-height: 1.5;
+  }
+  .btn {
+    width: 100%;
+    height: 42px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+    border: 1px solid var(--btn-border);
+    background: var(--btn-bg);
+    color: var(--btn-text);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  }
+  .btn:hover {
+    background: var(--btn-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+  .btn:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  }
+  .btn-primary {
+    border: none;
+    background: var(--btn-primary-bg);
+    color: var(--btn-primary-text);
+    box-shadow: var(--btn-primary-shadow);
+  }
+  .btn-primary:hover {
+    background: var(--btn-primary-hover);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+  }
+  .status {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--status-border);
+    background: var(--status-bg);
+    color: var(--status-text);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-line;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: all 0.2s ease;
+  }
+  .status.ok {
+    border-color: var(--status-ok-border);
+    color: var(--status-ok-text);
+    background: color-mix(in srgb, var(--status-ok-border) 10%, transparent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--status-ok-border) 20%, transparent);
+  }
+  .status.err {
+    border-color: var(--status-err-border);
+    color: var(--status-err-text);
+    background: color-mix(in srgb, var(--status-err-border) 10%, transparent);
+  }
+  .shortcut {
+    margin-top: 14px;
+    color: var(--text-muted);
+    font-size: 11px;
+    text-align: center;
+  }
+  kbd {
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--kbd-border);
+    background: var(--kbd-bg);
+    color: var(--kbd-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.05);
+  }
 </style>
 </head>
 <body>
-<h3>⬡ AI HALLUCINATION JUROR</h3>
-<button class="btn" id="btn-scan">▶ SCAN LATEST RESPONSE</button>
-<button class="btn btn-b" id="btn-sel">◈ SCAN SELECTED TEXT</button>
-<button class="btn btn-c" id="btn-dash">📊 Dashboard (localhost:8000)</button>
-<div class="status" id="status">Checking server...</div>
-<div class="shortcut">Shortcut: <kbd>Ctrl+Shift+J</kbd></div>
-<script src="popup.js"></script>
+  <div class="title">AI Hallucination Juror</div>
+  <div class="subtitle">Check the latest AI answer or scan the text you selected on the current page.</div>
+  <button class="btn btn-primary" id="btn-scan">Scan latest response</button>
+  <button class="btn" id="btn-sel">Scan selected text</button>
+  <button class="btn" id="btn-dash">Open dashboard</button>
+  <div class="status" id="status">Checking server...</div>
+  <div class="shortcut">Shortcut: <kbd>Ctrl+Shift+J</kbd></div>
+  <script src="popup.js"></script>
 </body>
 </html>

@@ -30,25 +30,30 @@ AGENT_COLORS = {
 class JurorApp(App):
     CSS = """
     Screen {
-        background: #060a0f;
-        color: #e2e8f0;
+        background: $background;
+        color: $text;
     }
     #main-panels {
         height: 1fr;
     }
-    #left-panel, #right-panel {
-        width: 1fr;
-        border: solid #1e293b;
+    #left-panel {
+        width: 65%;
+        border: solid $primary-background-darken-2;
+        padding: 1;
+    }
+    #right-panel {
+        width: 35%;
+        border: solid $primary-background-darken-2;
         padding: 1;
     }
     #left-title, #right-title {
-        color: #94a3b8;
+        color: $text-muted;
         margin-bottom: 1;
     }
     #jury-log {
-        background: #060a0f;
-        color: #cbd5e1;
-        border: solid #1e293b;
+        background: $surface;
+        color: $text;
+        border: solid $primary-background-darken-2;
     }
     HistoryTable {
         height: 12;

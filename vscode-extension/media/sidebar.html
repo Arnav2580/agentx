@@ -11,19 +11,37 @@
   <div class="shell">
     <div class="header">
       <div class="eyebrow-row">
-        <div class="eyebrow">AI HALLUCINATION JUROR</div>
+        <div>
+          <div class="eyebrow">AI HALLUCINATION JUROR</div>
+          <div class="sub-eyebrow">5-agent review and command shielding</div>
+        </div>
         <div id="server-status" class="server-status">Checking server</div>
       </div>
-      <button id="verify-button" class="verify-button">Verify current file or selection</button>
-      <div class="helper">Right-click selected text or use the button above to run the jury.</div>
+      <button id="verify-button" class="action-button">Verify current file or selection</button>
+      <div class="helper">Use the button above or the editor context menu to run the jury on selected AI-generated text.</div>
     </div>
+
     <div id="content" class="content">
       <div class="idle">
         <div class="idle-title">Ready to verify</div>
-        <div class="idle-copy">Open a file, select AI-generated text, and run Juror when you want a quick verdict.</div>
+        <div class="idle-copy">Open a file, select AI-generated text, and run Juror when you want a quick verdict with issues and a correction.</div>
       </div>
     </div>
+
+    <div class="section-divider"></div>
+    <div class="section-header">
+      <div class="section-title">Command Shield</div>
+      <div class="section-caption">Recent intercepted commands</div>
+    </div>
+
+    <div id="cmd-result" class="cmd-result hidden"></div>
+    <div id="cmd-feed" class="cmd-feed">
+      <div class="cmd-idle">Monitoring AI agent commands...</div>
+    </div>
+
+    <button id="check-command-button" class="action-button secondary">Check a command</button>
   </div>
+
   <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
 </body>
 </html>

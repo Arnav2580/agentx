@@ -1,161 +1,351 @@
 /**
- * AI Hallucination Juror - Chrome Extension v4
- * Theme: Warm editorial - parchment + gold accents
- * Sidebar integrates with page (pushes content, no overlap)
+ * AI Hallucination Juror - Chrome content script
+ *
+ * Goals:
+ * - Better dark-mode contrast and typography
+ * - Claude-friendly layout that feels native instead of bolted on
+ * - More reliable latest-response extraction, especially on Claude
+ * - Cleaner page shifting so the panel does not crush the host layout
  */
 
 const JUROR_URL = "http://localhost:8000";
-const PANEL_WIDTH = 340;
+const PANEL_WIDTH = 368;
+const MIN_TEXT_LENGTH = 20;
 
 const TOKENS = {
-  bgBase: "#1a1410",
-  bgSurface: "#221c15",
-  bgHeader: "#2a2018",
-  bgRaised: "#312620",
-  border: "#3d3025",
-  borderMid: "#4f3d2d",
-  textPrimary: "#ede0c8",
-  textSecondary: "#a89070",
-  textMuted: "#6b5040",
-  textDim: "#4a3828",
-  gold: "#c8a870",
-  goldDim: "#7a6040",
-  approved: "#7ab87a",
-  flagged: "#c8a040",
-  blocked: "#c86060",
-  pass: "#7ab87a",
-  fail: "#c86060",
-  uncertain: "#c8a040",
+  bg: "var(--bg)",
+  bgElevated: "var(--bgElevated)",
+  bgRaised: "var(--bgRaised)",
+  bgPanel: "var(--bgPanel)",
+  border: "var(--border)",
+  borderStrong: "var(--borderStrong)",
+  text: "var(--text)",
+  textSecondary: "var(--textSecondary)",
+  textMuted: "var(--textMuted)",
+  textFaint: "var(--textFaint)",
+  accent: "var(--accent)",
+  accentSoft: "var(--accentSoft)",
+  accentBg: "var(--accentBg)",
+  success: "var(--success)",
+  warning: "var(--warning)",
+  danger: "var(--danger)",
+  info: "var(--info)",
 };
 
 let shadowHost = null;
-let shadow = null;
-let toggleBtn = null;
+let shadowRootRef = null;
+let toggleButton = null;
 let isVerifying = false;
 let sidebarOpen = false;
-let lastHash = 0;
+let lastVerifiedHash = 0;
+let pushedElements = [];
+let lastObservedResponseHash = 0;
 
 const SITES = {
   "claude.ai": {
     name: "Claude",
-    sel: [
+    selectors: [
+      '[data-testid="assistant-message"] [data-testid="message-content"]',
+      '[data-testid="assistant-message"]',
+      '[data-testid="message-content"]',
       '[data-is-streaming="false"] .font-claude-message',
       ".font-claude-message",
-      '[data-testid="assistant-message"]',
+      '[class*="assistant"] [class*="prose"]',
+      'main [class*="prose"]',
+      '.grid-cols-1',
+      '[data-message-author-role="assistant"]',
+      '.prose'
     ],
-    done: '[data-is-streaming="false"]',
+    busySelectors: [
+      '[data-is-streaming="true"]',
+      'button[aria-label*="Stop" i]',
+      'button[title*="Stop" i]',
+    ],
   },
   "chat.openai.com": {
     name: "ChatGPT",
-    sel: [
+    selectors: [
       '[data-message-author-role="assistant"] .markdown',
       '[data-message-author-role="assistant"]',
+      '.agent-turn [class*="markdown"]',
     ],
-    done: 'button[data-testid="copy-turn-action-button"]',
+    busySelectors: ['button[aria-label*="Stop" i]'],
   },
   "chatgpt.com": {
     name: "ChatGPT",
-    sel: ['[data-message-author-role="assistant"] .markdown'],
-    done: 'button[data-testid="copy-turn-action-button"]',
+    selectors: [
+      '[data-message-author-role="assistant"] .markdown',
+      '[data-message-author-role="assistant"]',
+    ],
+    busySelectors: ['button[aria-label*="Stop" i]'],
   },
   "gemini.google.com": {
     name: "Gemini",
-    sel: ["model-response .response-content", ".response-content"],
-    done: ".copy-button",
+    selectors: [
+      "model-response .response-content",
+      ".response-content",
+      "message-content",
+      '[class*="response"][class*="content"]',
+    ],
+    busySelectors: ['button[aria-label*="Stop" i]'],
   },
   "aistudio.google.com": {
     name: "AI Studio",
-    sel: [".response-container", '[class*="model"] [class*="response"]'],
-    done: null,
+    selectors: [
+      ".response-container",
+      '[class*="model"] [class*="response"]',
+      ".output-content",
+    ],
+    busySelectors: ['button[aria-label*="Stop" i]'],
   },
   "copilot.microsoft.com": {
     name: "Copilot",
-    sel: [".ac-textBlock", '[class*="assistant-message"]'],
-    done: null,
+    selectors: [
+      ".ac-textBlock",
+      '[class*="assistant"] [class*="text"]',
+      '[class*="bot"] [class*="content"]',
+    ],
+    busySelectors: [],
   },
   "perplexity.ai": {
     name: "Perplexity",
-    sel: ['[class*="prose"]', '[data-testid="answer"]'],
-    done: 'button[aria-label="Copy"]',
+    selectors: [
+      '[data-testid="answer"]',
+      '[class*="answer"] .prose',
+      '[class*="response"] .prose',
+      ".prose",
+    ],
+    busySelectors: ['button[aria-label*="Stop" i]'],
   },
   "www.perplexity.ai": {
     name: "Perplexity",
-    sel: ['[class*="prose"]'],
-    done: null,
+    selectors: [
+      '[data-testid="answer"]',
+      '[class*="answer"] .prose',
+      ".prose",
+    ],
+    busySelectors: ['button[aria-label*="Stop" i]'],
   },
   "grok.com": {
     name: "Grok",
-    sel: ['[class*="message"][class*="assistant"]', '[class*="prose"]'],
-    done: null,
+    selectors: [
+      '[class*="assistant"] [class*="message"]',
+      '[class*="response"] [class*="content"]',
+      ".prose",
+    ],
+    busySelectors: [],
   },
   "chat.mistral.ai": {
     name: "Mistral",
-    sel: ['[class*="assistant"] [class*="message-content"]', '[class*="prose"]'],
-    done: null,
+    selectors: [
+      '[class*="assistant"] [class*="message-content"]',
+      ".prose",
+      '[class*="response"]',
+    ],
+    busySelectors: [],
   },
   "poe.com": {
     name: "Poe",
-    sel: ['[class*="Message_botMessageBubble"] [class*="content"]'],
-    done: null,
+    selectors: [
+      '[class*="botMessage"] [class*="content"]',
+      '[class*="Message_botMessageBubble"]',
+      '[class*="message"]',
+    ],
+    busySelectors: [],
   },
   "huggingface.co": {
     name: "HuggingChat",
-    sel: ['[class*="assistant"] [class*="prose"]'],
-    done: null,
+    selectors: [
+      '[class*="assistant"] [class*="prose"]',
+      ".message-content",
+      '[class*="chat"] [class*="assistant"]',
+    ],
+    busySelectors: [],
   },
   "chat.deepseek.com": {
     name: "DeepSeek",
-    sel: ['[class*="ds-markdown"]', '[class*="message"][class*="assistant"]'],
-    done: null,
+    selectors: [
+      '[class*="ds-markdown"]',
+      '[class*="message"][class*="assistant"]',
+      ".prose",
+    ],
+    busySelectors: [],
   },
   "you.com": {
     name: "You.com",
-    sel: ['[data-testid="ai-response"]'],
-    done: null,
+    selectors: [
+      '[data-testid="ai-response"]',
+      '[class*="aiResponse"]',
+      '[class*="answer"] .prose',
+    ],
+    busySelectors: [],
   },
   "phind.com": {
     name: "Phind",
-    sel: ['[class*="answer"] [class*="prose"]'],
-    done: null,
+    selectors: [
+      '[class*="answer"] [class*="prose"]',
+      '[class*="response"]',
+      ".prose",
+    ],
+    busySelectors: [],
   },
   "www.phind.com": {
     name: "Phind",
-    sel: ['[class*="answer"] [class*="prose"]'],
-    done: null,
+    selectors: [
+      '[class*="answer"] [class*="prose"]',
+      '[class*="response"]',
+      ".prose",
+    ],
+    busySelectors: [],
   },
 };
 
 function getSite() {
-  const hostname = location.hostname.replace(/^www\./, "");
-  return SITES[hostname] || SITES[location.hostname] || null;
+  const normalized = location.hostname.replace(/^www\./, "");
+  return SITES[normalized] || SITES[location.hostname] || null;
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function isVisible(element) {
+  if (!element || !(element instanceof Element)) return false;
+  const rect = element.getBoundingClientRect();
+  if (!rect.width || !rect.height) return false;
+  const style = window.getComputedStyle(element);
+  return style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity || "1") > 0;
+}
+
+function hasBadAncestor(element) {
+  return Boolean(
+    element.closest(
+      [
+        "#juror-shadow-host",
+        "#juror-toggle",
+        "textarea",
+        "input",
+        "form",
+        "nav",
+        "aside",
+        "header",
+        "footer",
+        '[role="textbox"]',
+        "[contenteditable='true']",
+        '[data-testid*="composer"]',
+        '[data-testid*="input"]',
+      ].join(",")
+    )
+  );
+}
+
+function looksLikeUtilityText(text) {
+  const lower = text.toLowerCase();
+  if (text.length < 160) {
+    return /(buy more|write a message|share|download|upload|rate limit|openclaw|adaptive)/i.test(lower);
+  }
+  return false;
+}
+
+function collectCandidatesFromSelectors(selectors) {
+  const map = new Map();
+  for (const selector of selectors) {
+    let matches = [];
+    try {
+      matches = Array.from(document.querySelectorAll(selector));
+    } catch (_) {
+      matches = [];
+    }
+    for (const element of matches) {
+      if (!map.has(element)) {
+        map.set(element, true);
+      }
+    }
+  }
+  return Array.from(map.keys());
+}
+
+function universalSelectors() {
+  return [
+    "main article",
+    'main [role="article"]',
+    'main [class*="message"]',
+    'main [class*="response"]',
+    'main [class*="assistant"]',
+    "main .prose",
+    'main [data-testid*="message"]',
+    '[role="main"] article',
+    '[role="main"] .prose',
+  ];
+}
+
+function scoreCandidate(element, text, site) {
+  const rect = element.getBoundingClientRect();
+  let score = Math.min(text.length, 5000);
+
+  if (element.closest("main, article, [role='main']")) score += 240;
+  if (element.closest('[data-testid*="assistant"], [data-author="assistant"], [class*="assistant"]')) score += 900;
+  if (site?.name === "Claude" && element.closest('[data-testid="assistant-message"]')) score += 1200;
+  if (site?.name === "Claude" && /free api setup|osv\.dev|pypi/i.test(text)) score += 500;
+
+  if (rect.width > 340) score += 180;
+  if (rect.height > 90) score += 120;
+  if (text.split("\n").length > 3) score += 90;
+
+  score += Math.max(0, rect.bottom) * 0.25;
+  score -= Math.max(0, 120 - rect.top) * 1.5;
+
+  if (looksLikeUtilityText(text)) score -= 900;
+  if (rect.width < 180 || rect.height < 28) score -= 500;
+
+  return score;
+}
+
+function findBestResponseCandidate() {
+  const site = getSite();
+  const selectors = site ? [...site.selectors, ...universalSelectors()] : universalSelectors();
+  const candidates = collectCandidatesFromSelectors(selectors);
+
+  const ranked = [];
+  for (const element of candidates) {
+    if (!isVisible(element) || hasBadAncestor(element)) continue;
+    const text = normalizeText(element.innerText || element.textContent || "");
+    if (text.length < MIN_TEXT_LENGTH) continue;
+    ranked.push({
+      element,
+      text,
+      score: scoreCandidate(element, text, site),
+    });
+  }
+
+  ranked.sort((left, right) => right.score - left.score);
+  return ranked[0] || null;
 }
 
 function extractResponse() {
-  const site = getSite();
-  if (!site) return null;
-
-  for (const selector of site.sel) {
-    try {
-      const elements = document.querySelectorAll(selector);
-      if (!elements.length) continue;
-      const text = (elements[elements.length - 1].innerText || "").trim();
-      if (text.length > 100) return text;
-    } catch (_) {
-      continue;
-    }
-  }
-
-  return null;
+  const best = findBestResponseCandidate();
+  return best ? best.text : null;
 }
 
-function streamDone() {
+function isStreamDone() {
   const site = getSite();
-  if (!site?.done) return true;
-  return document.querySelectorAll(site.done).length > 0;
+  if (!site || !site.busySelectors?.length) return true;
+  return !site.busySelectors.some((selector) => {
+    try {
+      return document.querySelector(selector);
+    } catch (_) {
+      return false;
+    }
+  });
 }
 
 function selectedText() {
-  const text = (window.getSelection()?.toString() || "").trim();
+  const text = normalizeText(window.getSelection()?.toString() || "");
   return text.length > 30 ? text : null;
 }
 
@@ -167,68 +357,95 @@ function hashOf(text) {
   return value;
 }
 
-function pushPage(open) {
-  const padding = open ? `${PANEL_WIDTH}px` : "0px";
-  const targets = [document.documentElement, document.body];
-  for (const element of targets) {
-    if (!element) continue;
-    element.style.setProperty(
-      "transition",
-      "padding-right 0.28s ease, margin-right 0.28s ease",
-      "important"
-    );
-    element.style.setProperty("padding-right", open ? padding : "", "important");
-  }
+function findPushTarget() {
+  const selectors = [
+    "main",
+    '[role="main"]',
+    "#__next",
+    "#root",
+    "#app",
+    '[data-testid="conversation"]',
+    "body > div:first-child",
+  ];
 
-  const wrappers = document.querySelectorAll(
-    'main, #main, #app, #root, [role="main"], .main-content, body > div:first-child'
-  );
-  for (const wrapper of wrappers) {
-    if (wrapper.scrollWidth > window.innerWidth * 0.5) {
-      wrapper.style.setProperty("transition", "padding-right 0.28s ease", "important");
-      wrapper.style.setProperty("padding-right", open ? padding : "", "important");
-      break;
+  let best = null;
+  let bestArea = 0;
+  for (const selector of selectors) {
+    let matches = [];
+    try {
+      matches = Array.from(document.querySelectorAll(selector));
+    } catch (_) {
+      matches = [];
+    }
+    for (const element of matches) {
+      if (!isVisible(element)) continue;
+      const rect = element.getBoundingClientRect();
+      const area = rect.width * rect.height;
+      if (area > bestArea && rect.width > window.innerWidth * 0.35) {
+        best = element;
+        bestArea = area;
+      }
     }
   }
+  return best || document.body;
+}
+
+function resetPushStyles() {
+  for (const element of pushedElements) {
+    if (!element) continue;
+    element.style.removeProperty("margin-right");
+    element.style.removeProperty("transition");
+  }
+  pushedElements = [];
+  document.documentElement.style.removeProperty("overflow-x");
+}
+
+function pushPage(open) {
+  // We no longer push the page content. The sidebar floats elegantly as an overlay.
+  // We just handle overflow gracefully to prevent double scrollbars.
+  resetPushStyles();
+  if (!open) return;
+  document.documentElement.style.setProperty("overflow-x", "hidden", "important");
 }
 
 function makeToggle() {
-  toggleBtn = document.createElement("div");
-  toggleBtn.id = "juror-toggle";
-  toggleBtn.textContent = "⬡";
+  toggleButton = document.createElement("button");
+  toggleButton.id = "juror-toggle";
+  toggleButton.type = "button";
   applyToggleStyle(false);
-  toggleBtn.onclick = () => openSidebar(!sidebarOpen);
-  document.documentElement.appendChild(toggleBtn);
+  toggleButton.addEventListener("click", () => openSidebar(!sidebarOpen));
+  document.documentElement.appendChild(toggleButton);
 }
 
 function applyToggleStyle(open) {
-  if (!toggleBtn) return;
+  if (!toggleButton) return;
 
-  Object.assign(toggleBtn.style, {
+  Object.assign(toggleButton.style, {
     position: "fixed",
-    bottom: "28px",
-    right: open ? `${PANEL_WIDTH + 10}px` : "10px",
-    width: "44px",
-    height: "44px",
-    background: open ? TOKENS.blocked : TOKENS.gold,
-    color: TOKENS.bgBase,
-    fontFamily: "Georgia, serif",
-    fontWeight: "900",
-    fontSize: open ? "18px" : "16px",
+    right: open ? `${PANEL_WIDTH + 16}px` : "16px",
+    bottom: "20px",
+    height: "42px",
+    minWidth: open ? "86px" : "92px",
+    padding: "0 16px",
+    borderRadius: "999px",
+    border: `1px solid ${open ? TOKENS.borderStrong : TOKENS.accentSoft}`,
+    background: open ? TOKENS.bgRaised : TOKENS.accentBg,
+    color: open ? TOKENS.text : TOKENS.accent,
+    fontFamily: "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    fontSize: "13px",
+    fontWeight: "700",
+    letterSpacing: "0.02em",
+    cursor: "pointer",
+    zIndex: "2147483646",
+    boxShadow: "0 12px 30px rgba(0,0,0,0.28)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: "50%",
-    cursor: "pointer",
-    zIndex: "2147483646",
-    boxShadow: `0 3px 20px ${open ? `${TOKENS.blocked}60` : `${TOKENS.gold}60`}`,
-    transition: "all 0.28s ease",
-    userSelect: "none",
-    pointerEvents: "all",
-    border: `1px solid ${open ? `${TOKENS.blocked}80` : `${TOKENS.gold}80`}`,
+    transition: "right 180ms ease, background 180ms ease, color 180ms ease, border-color 180ms ease",
   });
-  toggleBtn.textContent = open ? "×" : "⬡";
-  toggleBtn.title = open ? "Close Juror" : "Open AI Hallucination Juror";
+
+  toggleButton.textContent = open ? "Close" : "Juror";
+  toggleButton.title = open ? "Close Juror sidebar" : "Open Juror sidebar";
 }
 
 function buildSidebar() {
@@ -245,449 +462,505 @@ function buildSidebar() {
   });
   document.documentElement.appendChild(shadowHost);
 
-  shadow = shadowHost.attachShadow({ mode: "open" });
-
+  shadowRootRef = shadowHost.attachShadow({ mode: "open" });
   const site = getSite();
-  const T = TOKENS;
+  const siteName = site ? site.name : location.hostname.replace(/^www\./, "");
+  const modeLabel = "Manual Mode Active";
 
-  shadow.innerHTML = `
+  shadowRootRef.innerHTML = `
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :host { all: initial; }
+  :root {
+    color-scheme: light dark;
+    --bgPanel: linear-gradient(145deg, #ffffff, #f8fafc);
+    --bgElevated: rgba(255, 255, 255, 0.6);
+    --bgRaised: rgba(241, 245, 249, 0.8);
+    --border: #e2e8f0;
+    --borderStrong: #cbd5e1;
+    --text: #0f172a;
+    --textSecondary: #334155;
+    --textMuted: #64748b;
+    --textFaint: #94a3b8;
+    --accent: #0f172a;
+    --accentSoft: #94a3b8;
+    --accentBg: #f1f5f9;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #38bdf8;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bgPanel: radial-gradient(circle at top right, rgba(30, 27, 75, 0.95) 0%, rgba(2, 6, 23, 0.98) 40%);
+      --bgElevated: rgba(15, 23, 42, 0.6);
+      --bgRaised: rgba(30, 41, 59, 0.6);
+      --border: rgba(255, 255, 255, 0.1);
+      --borderStrong: rgba(255, 255, 255, 0.15);
+      --text: #f8fafc;
+      --textSecondary: #cbd5e1;
+      --textMuted: #94a3b8;
+      --textFaint: #64748b;
+      --accent: #38bdf8;
+      --accentSoft: rgba(56, 189, 248, 0.2);
+      --accentBg: rgba(56, 189, 248, 0.1);
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --info: #38bdf8;
+    }
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
 
   #panel {
     position: fixed;
     top: 0;
-    right: -${PANEL_WIDTH + 8}px;
+    right: -${PANEL_WIDTH + 10}px;
     width: ${PANEL_WIDTH}px;
     height: 100vh;
-    background: ${T.bgBase};
-    border-left: 1px solid ${T.border};
+    background: var(--bgPanel);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    color: var(--text);
     display: flex;
     flex-direction: column;
-    font-family: Georgia, "Palatino Linotype", serif;
-    font-size: 14px;
-    color: ${T.textPrimary};
-    transition: right 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    border-left: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+    box-shadow: -24px 0 64px rgba(0, 0, 0, 0.35);
+    transition: right 240ms cubic-bezier(0.16, 1, 0.3, 1);
     pointer-events: all;
     overflow: hidden;
-    box-shadow: -8px 0 40px rgba(0,0,0,0.5);
+    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
+
   #panel.open { right: 0; }
 
-  .hdr {
-    background: ${T.bgHeader};
-    border-bottom: 1px solid ${T.border};
-    padding: 14px 16px 12px;
+  .header {
+    padding: 16px;
+    background: ${TOKENS.bg};
+    border-bottom: 1px solid ${TOKENS.border};
     flex-shrink: 0;
   }
-  .hdr-top {
+
+  .header-top {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 10px;
+    gap: 12px;
   }
-  .logo {
-    color: ${T.gold};
-    font-size: 20px;
-    flex-shrink: 0;
-    line-height: 1;
-  }
-  .brand {
-    flex: 1;
-    min-width: 0;
-  }
-  .brand-name {
-    display: block;
-    color: ${T.gold};
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    font-family: "Courier New", monospace;
-  }
-  .brand-site {
-    display: block;
-    color: ${T.textMuted};
-    font-size: 11px;
-    margin-top: 2px;
-    font-family: "Courier New", monospace;
-    letter-spacing: 0.5px;
-  }
-  .close-btn {
-    background: transparent;
-    border: 1px solid ${T.borderMid};
-    color: ${T.textMuted};
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    cursor: pointer;
-    font-size: 16px;
-    display: flex;
+
+  .brand-mark {
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
+    border: 1px solid ${TOKENS.accentSoft};
+    background: ${TOKENS.accentBg};
+    color: ${TOKENS.accent};
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
-    transition: all 0.15s;
-    font-family: Georgia, serif;
-  }
-  .close-btn:hover {
-    border-color: ${T.blocked};
-    color: ${T.blocked};
-    background: ${T.blocked}15;
-  }
-
-  .btn-row {
-    display: flex;
-    gap: 8px;
-  }
-  .btn {
-    flex: 1;
-    padding: 8px 10px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-family: "Courier New", monospace;
     font-size: 11px;
     font-weight: 700;
-    letter-spacing: 1px;
-    text-align: center;
-    transition: all 0.15s;
-    border: 1px solid;
-  }
-  .btn-primary {
-    background: ${T.gold}18;
-    border-color: ${T.gold}50;
-    color: ${T.gold};
-  }
-  .btn-primary:hover { background: ${T.gold}28; border-color: ${T.gold}80; }
-  .btn-secondary {
-    background: transparent;
-    border-color: ${T.border};
-    color: ${T.textSecondary};
-  }
-  .btn-secondary:hover { border-color: ${T.borderMid}; color: ${T.textPrimary}; }
-
-  .strip {
-    padding: 6px 16px;
-    background: ${T.bgBase};
-    border-bottom: 1px solid ${T.border};
-    font-family: "Courier New", monospace;
-    font-size: 10px;
-    color: ${T.textDim};
+    letter-spacing: 0.04em;
     flex-shrink: 0;
+  }
+
+  .brand-copy {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .brand-title {
+    color: ${TOKENS.text};
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .brand-subtitle {
+    margin-top: 2px;
+    color: ${TOKENS.textMuted};
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .close-button {
+    width: 32px;
+    height: 32px;
+    border: 1px solid ${TOKENS.borderStrong};
+    border-radius: 999px;
+    background: ${TOKENS.bgRaised};
+    color: ${TOKENS.textSecondary};
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .close-button:hover {
+    border-color: ${TOKENS.textMuted};
+    color: ${TOKENS.text};
+  }
+
+  .button-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .button {
+    height: 42px;
+    border-radius: 10px;
+    border: 1px solid ${TOKENS.borderStrong};
+    background: ${TOKENS.bgRaised};
+    color: ${TOKENS.text};
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .button:hover {
+    border-color: ${TOKENS.accentSoft};
+    background: #35342f;
+  }
+
+  .button.primary {
+    background: ${TOKENS.accentBg};
+    border-color: ${TOKENS.accentSoft};
+    color: ${TOKENS.accent};
+  }
+
+  .status-strip {
     display: flex;
     align-items: center;
     gap: 8px;
-    letter-spacing: 0.5px;
+    padding: 10px 16px;
+    border-bottom: 1px solid ${TOKENS.border};
+    background: ${TOKENS.bgPanel};
+    color: ${TOKENS.textMuted};
+    font-size: 12px;
+    flex-shrink: 0;
   }
-  .dot { font-size: 7px; }
-  .dot.auto { color: ${T.approved}; }
-  .dot.manual { color: ${T.flagged}; }
-  kbd {
-    background: ${T.bgRaised};
-    border: 1px solid ${T.border};
-    border-radius: 3px;
-    padding: 1px 5px;
-    font-size: 10px;
-    color: ${T.textMuted};
-    font-family: "Courier New", monospace;
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: ${site ? TOKENS.success : TOKENS.warning};
+    box-shadow: 0 0 0 4px rgba(125, 211, 122, 0.08);
+    flex-shrink: 0;
+  }
+
+  .shortcut-chip {
+    margin-left: auto;
+    padding: 4px 8px;
+    border: 1px solid ${TOKENS.borderStrong};
+    border-radius: 8px;
+    background: ${TOKENS.bgElevated};
+    color: ${TOKENS.textFaint};
+    font-size: 11px;
   }
 
   .body {
     flex: 1;
     overflow-y: auto;
-    overflow-x: hidden;
     padding: 16px;
-    scrollbar-width: thin;
-    scrollbar-color: ${T.border} transparent;
+    background: ${TOKENS.bgPanel};
   }
-  .body::-webkit-scrollbar { width: 4px; }
-  .body::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 2px; }
 
-  .idle {
-    text-align: center;
-    padding: 32px 16px;
-    color: ${T.textMuted};
-    line-height: 1.8;
+  .body::-webkit-scrollbar {
+    width: 6px;
   }
-  .idle-icon { font-size: 32px; color: ${T.textDim}; margin-bottom: 12px; }
-  .idle-title { color: ${T.textSecondary}; font-size: 14px; margin-bottom: 6px; }
-  .idle-sub { font-size: 12px; color: ${T.textMuted}; line-height: 1.7; }
-  .idle-sub b { color: ${T.gold}; font-style: normal; }
 
-  .loading { text-align: center; padding: 32px 16px; }
-  .spin {
-    font-size: 30px;
-    color: ${T.gold};
-    display: inline-block;
-    animation: rot 1.4s ease-in-out infinite;
-    margin-bottom: 12px;
+  .body::-webkit-scrollbar-thumb {
+    background: ${TOKENS.borderStrong};
+    border-radius: 999px;
   }
-  @keyframes rot { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-  .loading-title { color: ${T.textSecondary}; font-size: 14px; margin-bottom: 6px; }
-  .loading-sub { color: ${T.textMuted}; font-size: 12px; font-family: "Courier New", monospace; }
 
-  .err-box {
-    background: ${T.blocked}12;
-    border: 1px solid ${T.blocked}40;
-    border-radius: 8px;
-    padding: 14px 16px;
-    color: ${T.blocked};
+  .empty-state,
+  .loading-state,
+  .message-card,
+  .summary-card,
+  .correction-card,
+  .agent-card {
+    border: 1px solid ${TOKENS.border};
+    border-radius: 14px;
+    background: ${TOKENS.bgElevated};
+  }
+
+  .empty-state,
+  .loading-state,
+  .message-card {
+    padding: 16px;
+  }
+
+  .empty-title,
+  .loading-title {
+    color: ${TOKENS.text};
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  .empty-copy,
+  .loading-copy,
+  .message-copy {
+    color: ${TOKENS.textSecondary};
+    line-height: 1.65;
     font-size: 13px;
-    line-height: 1.6;
-  }
-  .err-hint {
-    display: block;
-    margin-top: 8px;
-    font-family: "Courier New", monospace;
-    font-size: 11px;
-    color: ${T.textMuted};
-    background: ${T.bgRaised};
-    padding: 5px 8px;
-    border-radius: 4px;
-  }
-  .warn-box {
-    background: ${T.flagged}12;
-    border: 1px solid ${T.flagged}40;
-    border-radius: 8px;
-    padding: 12px 14px;
-    color: ${T.flagged};
-    font-size: 13px;
-    line-height: 1.6;
   }
 
-  .verdict-badge {
+  .loading-copy {
+    color: ${TOKENS.textMuted};
+  }
+
+  .message-card.warn {
+    border-color: rgba(241, 197, 93, 0.28);
+    background: rgba(241, 197, 93, 0.08);
+  }
+
+  .message-card.error {
+    border-color: rgba(239, 127, 127, 0.30);
+    background: rgba(239, 127, 127, 0.09);
+  }
+
+  .message-title {
+    color: ${TOKENS.text};
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .message-hint {
+    margin-top: 10px;
+    padding: 10px 12px;
     border-radius: 10px;
-    border: 1px solid;
-    padding: 18px 16px;
-    text-align: center;
-    margin-bottom: 14px;
+    background: ${TOKENS.bg};
+    color: ${TOKENS.textMuted};
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
-  .verdict-icon { font-size: 28px; margin-bottom: 6px; display: block; }
+
+  .verdict-banner {
+    margin-bottom: 14px;
+    border-radius: 16px;
+    border: 1px solid;
+    padding: 16px;
+    background: ${TOKENS.bg};
+  }
+
   .verdict-label {
     font-size: 18px;
-    font-weight: 700;
-    letter-spacing: 3px;
-    text-transform: uppercase;
-    font-family: "Courier New", monospace;
-    margin-bottom: 8px;
-    display: block;
+    font-weight: 800;
+    letter-spacing: 0.04em;
   }
+
   .verdict-meta {
-    font-size: 11px;
-    color: ${T.textMuted};
-    font-family: "Courier New", monospace;
+    margin-top: 8px;
     display: flex;
-    justify-content: center;
-    gap: 10px;
     flex-wrap: wrap;
-  }
-  .verdict-meta span { white-space: nowrap; }
-  .domain-tag {
-    display: inline-block;
-    font-family: "Courier New", monospace;
-    font-size: 10px;
-    color: ${T.textMuted};
-    background: ${T.bgSurface};
-    border: 1px solid ${T.border};
-    border-radius: 4px;
-    padding: 3px 8px;
-    margin-bottom: 14px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-  }
-
-  .section-label {
-    font-family: "Courier New", monospace;
-    font-size: 9px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: ${T.textMuted};
-    margin-bottom: 8px;
-    border-bottom: 1px solid ${T.border};
-    padding-bottom: 5px;
-  }
-
-  .agents { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-  .agent {
-    background: ${T.bgSurface};
-    border: 1px solid ${T.border};
-    border-radius: 7px;
-    padding: 9px 12px;
-    transition: border-color 0.15s;
-  }
-  .agent.fail { border-color: ${T.fail}35; background: ${T.fail}08; }
-  .agent.pass { border-color: ${T.pass}20; }
-
-  .agent-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 2px;
     gap: 8px;
-  }
-  .agent-id {
-    font-family: "Courier New", monospace;
-    font-size: 10px;
-    color: ${T.textMuted};
-    margin-right: 6px;
-    flex-shrink: 0;
-  }
-  .agent-name { font-size: 12px; color: ${T.textSecondary}; flex: 1; }
-  .agent-verd {
-    font-family: "Courier New", monospace;
-    font-size: 11px;
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-  .agent-issue {
-    font-size: 11px;
-    color: ${T.textMuted};
-    padding-left: 14px;
-    margin-top: 4px;
-    line-height: 1.5;
-    border-left: 2px solid ${T.fail}40;
-    margin-left: 2px;
+    color: ${TOKENS.textMuted};
+    font-size: 12px;
   }
 
-  .issues-block {
-    background: ${T.bgSurface};
-    border: 1px solid ${T.border};
-    border-radius: 7px;
-    padding: 10px 12px;
-    margin-bottom: 14px;
-  }
-  .issue-line {
-    font-size: 12px;
-    color: ${T.textSecondary};
-    padding: 3px 0;
-    border-bottom: 1px solid ${T.border};
-    line-height: 1.5;
-  }
-  .issue-line:last-child { border-bottom: none; }
-  .issue-dot { color: ${T.flagged}; margin-right: 6px; }
-
-  .correction {
-    background: ${T.bgSurface};
-    border: 1px solid ${T.goldDim}50;
-    border-radius: 7px;
-    padding: 12px;
-    margin-bottom: 14px;
-  }
-  .correction-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 10px;
-  }
-  .correction-icon { color: ${T.gold}; font-size: 14px; }
-  .correction-title {
-    font-family: "Courier New", monospace;
-    font-size: 10px;
-    letter-spacing: 1.5px;
-    color: ${T.gold};
-    text-transform: uppercase;
-  }
-  .correction-body {
-    font-size: 12px;
-    color: ${T.textSecondary};
-    line-height: 1.7;
-    max-height: 150px;
-    overflow-y: auto;
-    white-space: pre-wrap;
-    margin-bottom: 10px;
-    font-family: "Courier New", monospace;
-    scrollbar-width: thin;
-    scrollbar-color: ${T.border} transparent;
-  }
-  .copy-btn {
+  .chip {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: ${T.gold}18;
-    border: 1px solid ${T.gold}40;
-    color: ${T.gold};
-    padding: 6px 12px;
-    border-radius: 5px;
-    cursor: pointer;
-    font-family: "Courier New", monospace;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border: 1px solid ${TOKENS.borderStrong};
+    background: ${TOKENS.bg};
+  }
+
+  .section-title {
+    margin: 16px 0 10px;
+    color: ${TOKENS.textMuted};
     font-size: 11px;
     font-weight: 700;
-    letter-spacing: 0.5px;
-    transition: all 0.15s;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
-  .copy-btn:hover { background: ${T.gold}28; }
 
-  .footer {
-    flex-shrink: 0;
-    padding: 10px 16px;
-    border-top: 1px solid ${T.border};
-    background: ${T.bgHeader};
-  }
-  .hist-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 4px 0;
-    border-bottom: 1px solid ${T.border};
-    font-size: 11px;
-    font-family: "Courier New", monospace;
+  .agent-list {
+    display: grid;
     gap: 8px;
   }
-  .hist-row:last-child { border-bottom: none; }
-  .hist-verdict { font-weight: 700; letter-spacing: 0.5px; }
-  .hist-domain { color: ${T.textMuted}; font-size: 10px; text-align: right; }
+
+  .agent-card {
+    padding: 12px;
+  }
+
+  .agent-card.fail {
+    border-color: rgba(239, 127, 127, 0.28);
+  }
+
+  .agent-card.pass {
+    border-color: rgba(125, 211, 122, 0.22);
+  }
+
+  .agent-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .agent-id {
+    color: ${TOKENS.textFaint};
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+
+  .agent-name {
+    flex: 1;
+    color: ${TOKENS.text};
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .agent-verdict {
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .agent-issue {
+    margin-top: 8px;
+    padding-left: 10px;
+    border-left: 2px solid rgba(239, 127, 127, 0.25);
+    color: ${TOKENS.textSecondary};
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  .summary-card,
+  .correction-card {
+    padding: 14px;
+  }
+
+  .summary-line {
+    color: ${TOKENS.textSecondary};
+    font-size: 13px;
+    line-height: 1.6;
+    margin-top: 6px;
+  }
+
+  .correction-card {
+    border-color: rgba(141, 182, 255, 0.24);
+    background: rgba(141, 182, 255, 0.07);
+  }
+
+  .correction-copy {
+    max-height: 180px;
+    overflow-y: auto;
+    color: ${TOKENS.textSecondary};
+    font-size: 12px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  .copy-button {
+    margin-top: 12px;
+    height: 36px;
+    border-radius: 10px;
+    border: 1px solid rgba(141, 182, 255, 0.32);
+    background: rgba(141, 182, 255, 0.10);
+    color: ${TOKENS.info};
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .footer {
+    padding: 14px 16px 16px;
+    border-top: 1px solid ${TOKENS.border};
+    background: ${TOKENS.bg};
+    flex-shrink: 0;
+  }
+
+  .history-list {
+    display: grid;
+    gap: 8px;
+    max-height: 128px;
+    overflow-y: auto;
+  }
+
+  .history-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 10px;
+    border: 1px solid ${TOKENS.border};
+    border-radius: 10px;
+    background: ${TOKENS.bgElevated};
+    font-size: 12px;
+  }
+
+  .history-domain {
+    color: ${TOKENS.textMuted};
+    text-align: right;
+  }
 </style>
 
 <div id="panel">
-  <div class="hdr">
-    <div class="hdr-top">
-      <span class="logo">⬡</span>
-      <div class="brand">
-        <span class="brand-name">Hallucination Juror</span>
-        <span class="brand-site" id="site-label">${site ? `${site.name} · auto-scan` : location.hostname}</span>
+  <div class="header">
+    <div class="header-top">
+      <div class="brand-mark">J</div>
+      <div class="brand-copy">
+        <div class="brand-title">Hallucination Juror</div>
+        <div class="brand-subtitle">${escapeHtml(siteName)} | ${escapeHtml(modeLabel)}</div>
       </div>
-      <button class="close-btn" id="btn-close" title="Close sidebar">×</button>
+      <button id="juror-close" class="close-button" type="button">x</button>
     </div>
-    <div class="btn-row">
-      <button class="btn btn-primary" id="btn-scan">▶ Scan Response</button>
-      <button class="btn btn-secondary" id="btn-sel">◈ Selection</button>
+    <div class="button-row">
+      <button id="juror-scan" class="button primary" type="button">Scan response</button>
+      <button id="juror-selection" class="button" type="button">Selection</button>
     </div>
   </div>
 
-  <div class="strip">
-    <span class="dot ${site ? "auto" : "manual"}">●</span>
-    <span>${site ? "Auto-scanning" : "Manual mode"}</span>
-    <span style="flex:1"></span>
-    <kbd>Ctrl+Shift+J</kbd>
+  <div class="status-strip">
+    <span class="status-dot"></span>
+    <span>${site ? "Watching this AI page" : "Use text selection on any page"}</span>
+    <span class="shortcut-chip">Ctrl+Shift+J</span>
   </div>
 
-  <div class="body" id="body">
-    <div class="idle">
-      <div class="idle-icon">⬡</div>
-      <div class="idle-title">Ready to verify</div>
-      <div class="idle-sub">${site
-        ? `Click <b>Scan Response</b> after ${site.name} replies`
-        : 'Select any text then click <b>Selection</b>'}</div>
+  <div id="juror-body" class="body">
+    <div class="empty-state">
+      <div class="empty-title">Ready to verify</div>
+      <div class="empty-copy">${site
+        ? `Click "Scan response" after ${escapeHtml(siteName)} finishes replying, or select part of the answer and use "Selection".`
+        : 'Select any block of text on the page, then use "Selection" or press Ctrl+Shift+J.'}</div>
     </div>
   </div>
 
   <div class="footer">
-    <div class="section-label" style="margin-bottom:6px">Recent verdicts</div>
-    <div id="hist-list"></div>
+    <div class="section-title" style="margin-top:0">Recent verdicts</div>
+    <div id="juror-history" class="history-list"></div>
   </div>
 </div>
   `;
 
-  shadow.getElementById("btn-close").onclick = () => openSidebar(false);
-  shadow.getElementById("btn-scan").onclick = scanResponse;
-  shadow.getElementById("btn-sel").onclick = scanSelection;
+  shadowRootRef.getElementById("juror-close").addEventListener("click", () => openSidebar(false));
+  shadowRootRef.getElementById("juror-scan").addEventListener("click", () => {
+    void scanResponse("manual");
+  });
+  shadowRootRef.getElementById("juror-selection").addEventListener("click", () => {
+    void scanSelection("manual");
+  });
 
   void loadHistory();
 }
 
 function openSidebar(open) {
   sidebarOpen = open;
-  const panel = shadow?.getElementById("panel");
+  const panel = shadowRootRef?.getElementById("panel");
   if (!panel) return;
 
   if (open) {
@@ -704,142 +977,149 @@ function openSidebar(open) {
 }
 
 function setBody(html) {
-  const body = shadow?.getElementById("body");
+  const body = shadowRootRef?.getElementById("juror-body");
   if (body) body.innerHTML = html;
 }
 
-const T = TOKENS;
-
 function showIdle() {
   const site = getSite();
-  setBody(`<div class="idle">
-    <div class="idle-icon">⬡</div>
-    <div class="idle-title">Ready to verify</div>
-    <div class="idle-sub">${site
-      ? `Click <b>Scan Response</b> after ${site.name} replies`
-      : 'Select any text then click <b>Selection</b>'}</div>
-  </div>`);
+  const siteName = site ? site.name : location.hostname.replace(/^www\./, "");
+  setBody(`
+    <div class="empty-state">
+      <div class="empty-title">Ready to verify</div>
+      <div class="empty-copy">${site
+        ? `Click "Scan response" after ${escapeHtml(siteName)} finishes replying, or select part of the answer and use "Selection".`
+        : 'Select any block of text on the page, then use "Selection" or press Ctrl+Shift+J.'}</div>
+    </div>
+  `);
 }
 
 function showLoading(label) {
-  setBody(`<div class="loading">
-    <div class="spin">⬡</div>
-    <div class="loading-title">Jury deliberating...</div>
-    <div class="loading-sub">5 agents · Gemini 2.5 Flash<br>${label || ""}</div>
-  </div>`);
-}
-
-function showErr(message, hint) {
-  setBody(`<div class="err-box">
-    ${esc(message)}
-    ${hint ? `<code class="err-hint">${esc(hint)}</code>` : ""}
-  </div>`);
+  setBody(`
+    <div class="loading-state">
+      <div class="loading-title">Checking the latest response</div>
+      <div class="loading-copy">Running the 5-agent jury with Gemini 2.5 Flash.<br>${escapeHtml(label || "")}</div>
+    </div>
+  `);
 }
 
 function showWarn(message) {
-  setBody(`<div class="warn-box">${esc(message)}</div>`);
+  setBody(`
+    <div class="message-card warn">
+      <div class="message-title">Need a clearer response</div>
+      <div class="message-copy">${escapeHtml(message)}</div>
+    </div>
+  `);
+}
+
+function showError(message, hint) {
+  setBody(`
+    <div class="message-card error">
+      <div class="message-title">Juror could not verify this response</div>
+      <div class="message-copy">${escapeHtml(message)}</div>
+      ${hint ? `<div class="message-hint">${escapeHtml(hint)}</div>` : ""}
+    </div>
+  `);
 }
 
 function verdictColor(verdict) {
-  return { APPROVED: T.approved, FLAGGED: T.flagged, BLOCKED: T.blocked }[verdict] || T.textMuted;
-}
-
-function verdictIcon(verdict) {
-  return { APPROVED: "✓", FLAGGED: "⚠", BLOCKED: "✕" }[verdict] || "?";
+  return {
+    APPROVED: TOKENS.success,
+    FLAGGED: TOKENS.warning,
+    BLOCKED: TOKENS.danger,
+  }[verdict] || TOKENS.textMuted;
 }
 
 function showVerdict(data) {
   if (!data?.final_verdict) {
-    showErr("Invalid server response");
+    showError("Unexpected response from the Juror server.");
     return;
   }
 
   const verdict = data.final_verdict;
   const color = verdictColor(verdict);
-  const icon = verdictIcon(verdict);
-
   let html = `
-    <div class="verdict-badge" style="border-color:${color}40;background:${color}10">
-      <span class="verdict-icon" style="color:${color}">${icon}</span>
-      <span class="verdict-label" style="color:${color}">${verdict}</span>
+    <div class="verdict-banner" style="border-color:${color}55">
+      <div class="verdict-label" style="color:${color}">${escapeHtml(verdict)}</div>
       <div class="verdict-meta">
-        <span>${data.fail_count}/5 agents flagged</span>
-        <span>·</span>
-        <span>${Math.round((data.overall_confidence || 0) * 100)}% confidence</span>
-        <span>·</span>
-        <span>${data.execution_time_ms}ms</span>
+        <span class="chip">${Number(data.fail_count || 0)}/5 agents flagged</span>
+        <span class="chip">${Math.round((data.overall_confidence || 0) * 100)}% confidence</span>
+        <span class="chip">${escapeHtml(String(data.execution_time_ms || 0))} ms</span>
       </div>
     </div>
-    <div class="domain-tag">${esc((data.domain || "general").replace(/_/g, " "))}</div>
+    <div class="section-title">Domain</div>
+    <div class="summary-card">
+      <div class="summary-line">${escapeHtml((data.domain || "general").replace(/_/g, " "))}</div>
+    </div>
+    <div class="section-title">Agent verdicts</div>
+    <div class="agent-list">
   `;
 
-  html += '<div class="section-label">Agent verdicts</div><div class="agents">';
   for (const agent of data.agent_results || []) {
-    const verdictColorValue = {
-      PASS: T.pass,
-      FAIL: T.fail,
-      UNCERTAIN: T.uncertain,
-    }[agent.verdict] || T.textMuted;
-    const verdictMarker = { PASS: "✓", FAIL: "✕", UNCERTAIN: "?" }[agent.verdict] || "?";
-    const klass = agent.verdict === "FAIL" ? "fail" : agent.verdict === "PASS" ? "pass" : "";
-    const issues = (agent.issues || [])
-      .slice(0, 2)
-      .map((issue) => `<div class="agent-issue">${esc(issue)}</div>`)
-      .join("");
-    html += `<div class="agent ${klass}">
-      <div class="agent-row">
-        <span class="agent-id">A${agent.agent_id}</span>
-        <span class="agent-name">${esc(agent.agent_name)}</span>
-        <span class="agent-verd" style="color:${verdictColorValue}">${verdictMarker} ${agent.verdict}</span>
-      </div>${issues}
-    </div>`;
+    const agentColor = {
+      PASS: TOKENS.success,
+      FAIL: TOKENS.danger,
+      UNCERTAIN: TOKENS.warning,
+    }[agent.verdict] || TOKENS.textMuted;
+    const cardClass = agent.verdict === "FAIL" ? "fail" : agent.verdict === "PASS" ? "pass" : "";
+    html += `
+      <div class="agent-card ${cardClass}">
+        <div class="agent-top">
+          <div class="agent-id">A${escapeHtml(String(agent.agent_id))}</div>
+          <div class="agent-name">${escapeHtml(agent.agent_name)}</div>
+          <div class="agent-verdict" style="color:${agentColor}">${escapeHtml(agent.verdict)}</div>
+        </div>
+        ${(agent.issues || []).slice(0, 2).map((issue) => `<div class="agent-issue">${escapeHtml(issue)}</div>`).join("")}
+      </div>
+    `;
   }
   html += "</div>";
 
   const issues = (data.issues_summary || []).filter(Boolean).slice(0, 5);
   if (issues.length) {
-    html += `<div class="section-label">Issues found</div>
-    <div class="issues-block">
-      ${issues.map((issue) => `<div class="issue-line"><span class="issue-dot">▸</span>${esc(issue)}</div>`).join("")}
-    </div>`;
+    html += `
+      <div class="section-title">Issues found</div>
+      <div class="summary-card">
+        ${issues.map((issue) => `<div class="summary-line">${escapeHtml(issue)}</div>`).join("")}
+      </div>
+    `;
   }
 
   if (verdict === "BLOCKED" && data.correction) {
-    html += `<div class="correction">
-      <div class="correction-header">
-        <span class="correction-icon">✦</span>
-        <span class="correction-title">Corrected output</span>
+    html += `
+      <div class="section-title">Corrected output</div>
+      <div class="correction-card">
+        <div class="correction-copy">${escapeHtml(data.correction.substring(0, 900))}${data.correction.length > 900 ? "\n..." : ""}</div>
+        <button id="juror-copy" class="copy-button" type="button">Copy correction</button>
       </div>
-      <div class="correction-body">${esc(data.correction.substring(0, 600))}${data.correction.length > 600 ? "\n..." : ""}</div>
-      <button class="copy-btn" id="copy-fix">⎘ Copy full correction</button>
-    </div>`;
+    `;
   }
 
   setBody(html);
 
-  const copyButton = shadow?.getElementById("copy-fix");
-  if (copyButton) {
-    copyButton.onclick = () => {
+  const copyButton = shadowRootRef?.getElementById("juror-copy");
+  if (copyButton && data.correction) {
+    copyButton.addEventListener("click", () => {
       void navigator.clipboard.writeText(data.correction);
-      copyButton.textContent = "✓ Copied";
+      copyButton.textContent = "Copied";
       setTimeout(() => {
-        copyButton.innerHTML = "⎘ Copy full correction";
-      }, 2000);
-    };
+        copyButton.textContent = "Copy correction";
+      }, 1800);
+    });
   }
 
   addHistory(verdict, data.domain, color);
 }
 
 function addHistory(verdict, domain, color) {
-  const history = shadow?.getElementById("hist-list");
+  const history = shadowRootRef?.getElementById("juror-history");
   if (!history) return;
 
   const row = document.createElement("div");
-  row.className = "hist-row";
+  row.className = "history-row";
   row.innerHTML = `
-    <span class="hist-verdict" style="color:${color}">${esc(verdict)}</span>
-    <span class="hist-domain">${esc((domain || "general").replace(/_/g, " "))}</span>
+    <span style="color:${color}; font-weight:700">${escapeHtml(verdict)}</span>
+    <span class="history-domain">${escapeHtml((domain || "general").replace(/_/g, " "))}</span>
   `;
   history.insertBefore(row, history.firstChild);
   while (history.children.length > 5) {
@@ -852,6 +1132,8 @@ async function loadHistory() {
     const response = await fetch(`${JUROR_URL}/history?limit=5`, { signal: AbortSignal.timeout(3000) });
     if (!response.ok) return;
     const data = await response.json();
+    const history = shadowRootRef?.getElementById("juror-history");
+    if (history) history.innerHTML = "";
     for (const item of (data.history || []).slice(0, 5)) {
       addHistory(item.final_verdict, item.domain, verdictColor(item.final_verdict));
     }
@@ -860,21 +1142,25 @@ async function loadHistory() {
   }
 }
 
-async function verify(content, label) {
+async function verifyContent(content, modeLabel) {
   if (isVerifying) {
-    showWarn("Already verifying — please wait a moment");
+    showWarn("Juror is already checking another response. Give it a moment.");
     return;
   }
 
-  const contentHash = hashOf(content);
-  if (contentHash === lastHash) {
-    showWarn("Already verified this content. Get a new AI response first.");
+  const responseHash = hashOf(content);
+  if (responseHash === lastVerifiedHash) {
+    showWarn("That exact response was already verified. Try a fresh answer or select a different block.");
     return;
   }
 
   isVerifying = true;
   openSidebar(true);
-  showLoading(label);
+  showLoading(modeLabel);
+
+  const site = getSite();
+  const source = `chrome:${location.hostname.replace(/^www\./, "")}`;
+  const context = `${site ? site.name : "Web page"} | ${modeLabel}`;
 
   try {
     const controller = new AbortController();
@@ -884,92 +1170,84 @@ async function verify(content, label) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         content: content.substring(0, 3000),
-        source: "chrome",
+        source,
+        context,
       }),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
 
-    if (!response.ok) throw new Error(`Server returned ${response.status}`);
-    const data = await response.json();
-    if (!data.final_verdict || !Array.isArray(data.agent_results)) {
-      throw new Error("Unexpected response from server");
+    if (!response.ok) {
+      throw new Error(`Server returned ${response.status}`);
     }
 
-    lastHash = contentHash;
+    const data = await response.json();
+    if (!data.final_verdict || !Array.isArray(data.agent_results)) {
+      throw new Error("The Juror server returned an unexpected response.");
+    }
+
+    lastVerifiedHash = responseHash;
     showVerdict(data);
   } catch (error) {
     if (error?.name === "AbortError") {
-      showErr("Request timed out", "python -m server.main");
+      showError("The request timed out before Juror finished the review.", "python -m server.main");
     } else if (error instanceof Error && (error.message.includes("fetch") || error.message.includes("NetworkError"))) {
-      showErr("Cannot reach Juror server on localhost:8000", "python -m server.main");
+      showError("Juror could not reach the local server on localhost:8000.", "python -m server.main");
     } else if (error instanceof Error) {
-      showErr(error.message);
+      showError(error.message);
     } else {
-      showErr("Unknown Chrome extension error");
+      showError("An unknown Chrome extension error occurred.");
     }
   } finally {
     isVerifying = false;
   }
 }
 
-async function scanResponse() {
-  const text = extractResponse();
-  if (!text) {
+async function scanResponse(trigger) {
+  const candidate = findBestResponseCandidate();
+  if (!candidate) {
     openSidebar(true);
     showWarn(
       getSite()
-        ? `No complete response found yet — wait for ${getSite().name} to finish responding, then click Scan Response.`
-        : "Scan Response only works on known AI sites. Select text and use Selection instead."
+        ? `Juror could not find a solid assistant response on ${getSite().name} yet. Wait for the answer to finish, or highlight the text and use Selection.`
+        : "Scan response works best on supported AI sites. On any page, highlight text and use Selection instead."
     );
     return;
   }
-  await verify(text, `${getSite()?.name || "page"} response`);
+
+  if (trigger === "auto" && !isStreamDone()) {
+    return;
+  }
+
+  lastObservedResponseHash = hashOf(candidate.text);
+  await verifyContent(candidate.text, `${getSite()?.name || "Page"} | ${trigger}`);
 }
 
-async function scanSelection() {
+async function scanSelection(trigger) {
   const text = selectedText();
   if (!text) {
     openSidebar(true);
-    showWarn("No text selected. Highlight any text on the page first, then click Selection.");
+    showWarn("Select the exact answer text you want checked, then try Selection again.");
     return;
   }
-  await verify(text, "selected text");
+  await verifyContent(text, `Selection | ${trigger}`);
 }
 
 function startMonitor() {
-  if (!getSite()) return;
-
-  let debounce = null;
-  let lastSeen = "";
-  new MutationObserver(() => {
-    if (isVerifying) return;
-    clearTimeout(debounce);
-    debounce = setTimeout(() => {
-      if (!streamDone()) return;
-      const text = extractResponse();
-      if (!text || text === lastSeen || text.length < 100) return;
-      if (hashOf(text) === lastHash) return;
-      lastSeen = text;
-      void verify(text, `${getSite().name} · auto`);
-    }, 2200);
-  }).observe(document.body, { childList: true, subtree: true });
+  // Auto-watch feature has been disabled to save Gemini API rate limits.
+  // The user must manually click 'Scan latest response' or use the shortcut.
+  return;
 }
 
 document.addEventListener("keydown", (event) => {
-  if (event.ctrlKey && event.shiftKey && event.key === "J") {
+  if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "j") {
     event.preventDefault();
     openSidebar(true);
     const text = selectedText();
     if (text) {
-      void verify(text, "keyboard · selected text");
+      void verifyContent(text, "Keyboard selection");
     } else {
-      const response = extractResponse();
-      if (response) {
-        void verify(response, "keyboard · latest response");
-      } else {
-        showWarn("Select text to verify, or wait for an AI response.");
-      }
+      void scanResponse("keyboard");
     }
   }
 
@@ -979,12 +1257,18 @@ document.addEventListener("keydown", (event) => {
 });
 
 chrome.runtime.onMessage.addListener((message) => {
-  if (message.type === "MANUAL_VERIFY") void scanResponse();
-  if (message.type === "VERIFY_SELECTED_TEXT") void scanSelection();
-  if (message.type === "TOGGLE_SIDEBAR") openSidebar(!sidebarOpen);
+  if (message.type === "MANUAL_VERIFY") {
+    void scanResponse("popup");
+  }
+  if (message.type === "VERIFY_SELECTED_TEXT") {
+    void scanSelection("popup");
+  }
+  if (message.type === "TOGGLE_SIDEBAR") {
+    openSidebar(!sidebarOpen);
+  }
 });
 
-function esc(value) {
+function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -994,4 +1278,5 @@ function esc(value) {
 
 makeToggle();
 buildSidebar();
-startMonitor();
+showIdle();
+// startMonitor();

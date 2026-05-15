@@ -1,53 +1,47 @@
 # AI Hallucination Juror - Technical Documentation
 
-This document describes the implementation that is in the repo now, not the earlier draft architecture.
+This document describes the implementation that is in the repo now.
 
 ## 1. Executive Summary
 
-AI Hallucination Juror is a local verification layer for AI-generated technical output. It sits between an answer and the developer, evaluates the content with a 5-agent jury, and returns a final verdict:
+AI Hallucination Juror is a local verification and interception layer for AI-assisted development.
 
-- `APPROVED`
-- `FLAGGED`
-- `BLOCKED`
+It currently has two live safety loops:
 
-If the result is `BLOCKED`, a sixth agent generates a correction.
+- **Content Jury** for AI-generated technical text
+- **Command Shield** for AI-generated or manually typed shell commands
 
-The same backend powers five access patterns:
+The same backend serves:
 
 - REST API
 - MCP
 - terminal CLI / TUI
 - VS Code extension
 - Chrome extension
+- shell hooks
+- background daemon
 
-## 2. What Changed In The Current Build
+## 2. Current Build Reality
 
-The current build is different from the earlier multi-file, multi-provider drafts.
-
-### Current reality
+The current build is not the early draft architecture. The live system now works like this:
 
 - provider is **Gemini 2.5 Flash**
-- the main jury is **batched**
-- agents 1-5 are run through **one structured model call**
-- Agent 6 is only called for `BLOCKED`
-- the file named `grok_client.py` now wraps **Gemini REST**, not Grok
-- the Chrome extension now uses a **floating toggle pill**, **Shadow DOM sidebar**, and **page push**
-- the repo now includes:
-  - one-command installers
+- the content jury is **batched**
+- Agents 1-5 run through **one structured model call**
+- Agent 6 only runs when the verdict is `BLOCKED`
+- `server/grok_client.py` is still named after an older provider, but now wraps **Gemini REST**
+- command interception uses:
+  - regex checks
+  - OSV.dev
+  - npm registry
+  - PyPI
+  - Gemini reasoning
+- the repo includes:
+  - installers
   - a committed VS Code `.vsix`
-  - a live dashboard at `/`
-
-### Legacy but still present
-
-These modules still exist, but they are not the main runtime path:
-
-- `server/agents/fact_verifier.py`
-- `server/agents/math_validator.py`
-- `server/agents/standards_checker.py`
-- `server/agents/logic_auditor.py`
-- `server/agents/domain_expert.py`
-
-They are useful as reference prompts and fallback implementation history, but the active verdict path runs through `server/agents/orchestrator.py`.
+  - a Chrome extension
+  - daemon + hook assets
+  - an uninstall command
 
 ## 3. Active Runtime Map
 
@@ -59,6 +53,9 @@ They are useful as reference prompts and fallback implementation history, but th
 - `server/database.py`
 - `server/domain_detector.py`
 - `server/grok_client.py`
+- `server/command_checker.py`
+- `server/daemon.py`
+- `server/hooks/`
 - `server/agents/orchestrator.py`
 - `server/agents/correction_agent.py`
 - `server/mcp_server.py`
@@ -87,22 +84,22 @@ They are useful as reference prompts and fallback implementation history, but th
 - `install.sh`
 - `install.ps1`
 
-## 4. End-to-End Request Flow
+## 4. Content Verification Flow
 
-### REST or UI flow
+### REST or UI path
 
 1. A surface captures text
 2. It sends `POST /verify`
-3. The backend trims the content to `REQUEST_CHAR_LIMIT`
-4. The orchestrator detects the domain
+3. The backend trims content to `REQUEST_CHAR_LIMIT`
+4. Domain detection runs
 5. The orchestrator sends one batched Gemini request for Agents 1-5
 6. The backend counts `FAIL` votes
 7. It returns `APPROVED`, `FLAGGED`, or `BLOCKED`
 8. If `BLOCKED`, Agent 6 generates a correction
 9. The verdict is saved to SQLite
-10. The surface renders the result
+10. The calling surface renders the result
 
-### MCP flow
+### MCP path
 
 1. An MCP client calls `/mcp`
 2. `tools/list` exposes:
@@ -113,7 +110,35 @@ They are useful as reference prompts and fallback implementation history, but th
 4. The same `run_jury()` path is used
 5. The result is formatted as readable MCP text
 
-## 5. Backend API
+## 5. Command Shield Flow
+
+The command checker lives in [server/command_checker.py](server/command_checker.py).
+
+### Runtime path
+
+1. A shell hook, agent hook, CLI command, or VS Code panel sends `POST /check-command`
+2. Fast regex analysis runs first
+3. Package names are extracted from install commands
+4. Threat intel is fetched concurrently from:
+   - OSV.dev
+   - npm registry
+   - PyPI
+5. Gemini reasoning runs for suspicious or ambiguous commands
+6. The server returns:
+   - `SAFE`
+   - `WARN`
+   - `BLOCK`
+7. The result is stored in `command_checks`
+8. VS Code and other surfaces can poll `/command-history`
+
+### Key behavior
+
+- clearly destructive patterns escalate to `BLOCK`
+- missing packages escalate to `BLOCK`
+- vulnerable or suspiciously new packages escalate to at least `WARN`
+- obviously harmless commands can short-circuit locally to avoid wasting model quota
+
+## 6. Backend API
 
 ### `GET /`
 
@@ -128,57 +153,58 @@ Returns a lightweight HTML dashboard with:
 
 ### `GET /health`
 
-Current response shape:
-
-```json
-{
-  "status": "running",
-  "version": "1.0.0",
-  "model": "gemini-2.5-flash",
-  "provider": "Gemini 2.5 Flash",
-  "configured": true,
-  "server": "http://localhost:8000"
-}
-```
+Returns backend status, model, provider, and server URL.
 
 ### `POST /verify`
 
-Accepts:
-
-```json
-{
-  "content": "AI-generated output to verify",
-  "domain": "software_development",
-  "context": "optional file path or prompt",
-  "source": "chrome"
-}
-```
-
-Returns a full `VerdictResponse` with:
-
-- per-agent results
-- final verdict
-- confidence
-- issues summary
-- optional correction
-- optional correction diff
+Accepts content verification requests and returns a full `VerdictResponse`.
 
 ### `GET /history`
 
-Returns recent saved verdicts from SQLite.
+Returns recent saved content verdicts from SQLite.
 
 ### `GET /stats`
 
 Returns aggregate counts and `block_rate`.
 
-## 6. Configuration
+### `POST /check-command`
+
+Accepts:
+
+```json
+{
+  "command": "npm install lodash",
+  "source": "vscode_manual",
+  "working_dir": "/optional/path",
+  "context": "optional AI task context"
+}
+```
+
+Returns:
+
+```json
+{
+  "verdict": "SAFE",
+  "confidence": 0.98,
+  "reasons": [],
+  "suggestion": "",
+  "category": "safe",
+  "packages_checked": []
+}
+```
+
+### `GET /command-history`
+
+Returns recent command checks for the VS Code Command Shield panel and other local surfaces.
+
+## 7. Configuration
 
 The backend loads environment variables from:
 
 1. `~/.juror/.env`
 2. repo `.env`
 
-Current important keys:
+Important keys:
 
 ```env
 GEMINI_API_KEY=...
@@ -192,36 +218,36 @@ BLOCKED_THRESHOLD=3
 AGENT_TIMEOUT_SECONDS=30
 ```
 
-### Important compatibility note
+Compatibility note:
 
-`server/config.py` still accepts `GROK_API_KEY` as a fallback env name, but the live runtime uses `GEMINI_API_KEY`.
+- `server/config.py` still accepts `GROK_API_KEY` as a fallback env name
+- the live runtime uses `GEMINI_API_KEY`
 
-## 7. The Gemini Client
+## 8. Gemini Client
 
-The file [server/grok_client.py](server/grok_client.py) is the shared model client.
+[server/grok_client.py](server/grok_client.py) is the shared model client.
 
 Despite the filename, it now:
 
 - calls Gemini over raw HTTP with `httpx`
-- targets `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
-- supports:
-  - plain text calls
-  - JSON mode
-  - response schema hints
+- targets `generativelanguage.googleapis.com`
+- supports plain text calls
+- supports JSON mode
+- supports schema-shaped responses
 
-Key behavior:
+Default behavior:
 
-- `temperature=0.1`
-- `thinkingBudget=0`
-- raises if Gemini returns no candidates or empty text
+- low temperature
+- no thinking budget
+- raises on empty or malformed model output
 
-## 8. Domain Detection
+## 9. Domain Detection
 
 Domain detection happens before the jury call.
 
 ### Primary path
 
-`server/domain_detector.py` asks Gemini to return one of:
+Gemini is asked to return one of:
 
 - `civil_engineering`
 - `mechanical_engineering`
@@ -236,20 +262,13 @@ Domain detection happens before the jury call.
 
 If Gemini fails, keyword heuristics are used.
 
-Examples:
-
-- `seismic`, `base shear`, `IS 875` -> `civil_engineering`
-- `npm`, `react`, `api`, `typescript` -> `software_development`
-- `compound interest`, `IRR`, `principal` -> `financial_modeling`
-- `paracetamol`, `mg/kg`, `patient` -> `healthcare`
-
-## 9. Jury Logic
+## 10. Jury Logic
 
 The live jury implementation is in [server/agents/orchestrator.py](server/agents/orchestrator.py).
 
 ### Batched agent model
 
-Instead of calling five model endpoints separately, the orchestrator builds one JSON-shaped prompt containing all five roles:
+The orchestrator builds one structured prompt containing five roles:
 
 1. Fact Verifier
 2. Math Validator
@@ -257,22 +276,9 @@ Instead of calling five model endpoints separately, the orchestrator builds one 
 4. Logic Auditor
 5. Domain Expert
 
-Gemini returns one JSON object containing five agent payloads.
+Gemini returns one JSON object containing all five results.
 
-### Structured response parsing
-
-The orchestrator:
-
-- requests JSON mode
-- provides a response schema
-- parses the result with `parse_agent_json()`
-- converts each agent object into `AgentResult`
-
-### Fail counting
-
-Only `FAIL` values count toward the final verdict.
-
-Thresholds:
+### Final verdict thresholds
 
 - `0-1 FAIL` -> `APPROVED`
 - `2 FAIL` -> `FLAGGED`
@@ -280,45 +286,35 @@ Thresholds:
 
 ### Safety guard
 
-If every agent comes back `UNCERTAIN`, the result is forced to `FLAGGED` instead of accidentally passing.
+If every agent comes back `UNCERTAIN`, the final result is forced to `FLAGGED`.
 
 ### Correction flow
 
 If the verdict is `BLOCKED`:
 
-1. all issues are flattened and deduped
+1. issues are flattened and deduped
 2. `run_correction_agent()` is called
 3. a unified diff is generated against the original content
 
-## 10. Correction Agent
+## 11. Correction Agent
 
-The correction path lives in [server/agents/correction_agent.py](server/agents/correction_agent.py).
+[server/agents/correction_agent.py](server/agents/correction_agent.py) first tries local fallback corrections for known demo cases, then falls back to Gemini when needed.
 
-### Current behavior
+This keeps demos stable and reduces unnecessary model usage.
 
-- first tries local fallback corrections for known demo cases
-- only calls Gemini when no local correction matches
-
-Current built-in fallback corrections exist for:
-
-- hallucinated React Query package usage
-- incorrect compound interest formula
-- unsafe pediatric paracetamol dose
-- unsafe seismic conclusion wording
-
-This keeps demo behavior stable and reduces unnecessary model usage.
-
-## 11. Storage
+## 12. Storage
 
 SQLite is handled in [server/database.py](server/database.py).
 
-Verdicts are stored in:
+Database path:
 
 ```text
 ~/.juror/verdicts.db
 ```
 
-Each row stores:
+### Tables
+
+`verdicts`
 
 - request id
 - timestamp
@@ -329,168 +325,156 @@ Each row stores:
 - content preview
 - full response JSON
 
-## 12. Terminal Surface
+`command_checks`
 
-The terminal experience has two layers:
+- command preview
+- verdict
+- category
+- source
+- reasons
+- suggestion
+- created timestamp
 
-### CLI
+## 13. Daemon
 
-[terminal/cli.py](terminal/cli.py) provides:
+The background daemon lives in [server/daemon.py](server/daemon.py).
+
+### Responsibilities
+
+- runs silently in the background
+- watches sensitive files
+- logs activity to `~/.juror/activity.log`
+- writes event records to `~/.juror/events.jsonl`
+- sends desktop notifications for sensitive changes
+- exposes a tiny local event server on `127.0.0.1:8001`
+
+### CLI controls
+
+- `juror daemon start`
+- `juror daemon status`
+- `juror daemon logs`
+- `juror stop`
+- `juror wakeup`
+
+## 14. Hooks
+
+Hook assets live in [server/hooks](server/hooks).
+
+### `intercept.py`
+
+For AI agents that support pre-tool hooks.
+
+Current behavior:
+
+- reads JSON from stdin
+- extracts shell commands
+- calls `/check-command`
+- logs activity
+- shows desktop notifications
+- exits with `2` on `BLOCK` for compatible tools
+
+### `shell_hook.sh`
+
+For Bash and Zsh style shell integration.
+
+Current behavior:
+
+- looks for risky command patterns
+- calls `/check-command`
+- prints warnings inline to the terminal
+- logs results to `~/.juror/activity.log`
+
+### Claude template
+
+`claude_settings_template.json` is merged by `juror install` when `~/.claude/settings.json` is present.
+
+## 15. Terminal Surface
+
+[terminal/cli.py](terminal/cli.py) now provides:
 
 - `juror start`
 - `juror start --no-tui`
 - `juror run <command>`
 - `juror verify <file>`
+- `juror check "<command>"`
+- `juror install`
+- `juror uninstall --yes`
+- `juror daemon start`
+- `juror daemon status`
+- `juror daemon logs`
+- `juror stop`
+- `juror wakeup`
 - `juror status`
 - `juror history`
 - `juror logs`
 - `juror install-service`
 
-### Textual dashboard
+The TUI still shows captured AI output, live jury status, verdict banners, and history.
 
-[terminal/app.py](terminal/app.py) shows:
+## 16. VS Code Extension
 
-- captured AI output
-- live jury log
-- verdict banner
-- recent history
+The VS Code extension now has two live responsibilities:
 
-The current TUI has been polished for demo use with clearer placeholders, verdict coloring, and summary output.
+- content verification
+- command monitoring
 
-## 13. VS Code Extension
-
-The VS Code extension lives under `vscode-extension/`.
-
-### Current user-facing behavior
+### User-facing behavior
 
 - activity bar Juror panel
 - verify current file
 - verify selected text
-- status bar button
+- status bar item
 - optional auto-verify on save
-- decorated warning states for flagged or blocked results
+- verdict sidebar with agent details
+- **Command Shield** feed for recent intercepted commands
+- **Check a command** action from the sidebar
 
-### Important files
+## 17. Chrome Extension
 
-- `src/extension.ts`
-- `src/jurorClient.ts`
-- `src/sidebarProvider.ts`
-- `src/fileWatcher.ts`
-- `src/decorationProvider.ts`
-- `media/sidebar.html`
-- `media/sidebar.css`
-- `media/sidebar.js`
+The Chrome extension remains the browser-side content surface.
 
-### Packaged artifact
+### Current behavior
 
-The repo includes:
+- content script runs on `<all_urls>`
+- auto-monitoring on known AI sites
+- manual selection scan on any page
+- floating `JUROR` button
+- Shadow DOM sidebar
+- page push instead of overlap
 
-```text
-vscode-extension/ai-hallucination-juror-1.0.0.vsix
-```
+`content/sidebar.css` is intentionally empty because the real styles live inside the Shadow DOM content script.
 
-That is the easiest installation path for judges.
+## 18. Installers And Uninstall
 
-## 14. Chrome Extension
-
-The Chrome extension now behaves very differently from the earlier draft.
-
-### Current model
-
-- content script loads on `<all_urls>`
-- auto-monitor only runs on known AI sites
-- manual verification works on any page
-- a floating `JUROR` pill is always available
-- the sidebar is rendered in a Shadow DOM host
-- opening the sidebar pushes the page left with `padding-right`
-
-### Known AI sites with auto-detection
-
-Examples currently covered:
-
-- Claude
-- ChatGPT
-- Gemini
-- AI Studio
-- Copilot
-- Perplexity
-- Grok
-- Mistral
-- Poe
-- HuggingChat
-- DeepSeek
-- You.com
-- Phind
-
-### Manual fallback
-
-On any page:
-
-- select text
-- press `Ctrl+Shift+J`
-
-or:
-
-- click the floating `JUROR` pill
-- use `SELECTION`
-
-### Extension pieces
-
-- `manifest.json`
-- `background.js`
-- `content/content.js`
-- `popup/popup.html`
-- `popup/popup.js`
-
-`content/sidebar.css` is intentionally empty now because the sidebar styles live inside the Shadow DOM content script.
-
-## 15. MCP Integration
-
-The MCP router is in [server/mcp_server.py](server/mcp_server.py).
-
-### Supported methods
-
-- `initialize`
-- `notifications/initialized`
-- `tools/list`
-- `tools/call`
-
-### Exposed tools
-
-- `verify_output`
-- `get_verdict_history`
-- `get_stats`
-
-### Example setup
-
-```bash
-claude mcp add juror http://localhost:8000/mcp
-```
-
-The MCP output is formatted as readable text so it is easy to inspect inside tool-enabled clients.
-
-## 16. Installers
-
-The repo now includes cross-platform installers at the repo root:
+Installers:
 
 - `install.sh`
 - `install.ps1`
 
-### What they do
+They:
 
-- clone or update the repo in `~/.juror-app`
+- clone or update `~/.juror-app`
 - install Python dependencies
-- ask for and save a Gemini key in `~/.juror/.env`
+- save the Gemini key to `~/.juror/.env`
 - create the `juror` command
-- install the bundled VS Code `.vsix` if possible
+- install the bundled VS Code extension when possible
 
-### What they do not do
+### Uninstall
 
-They do not install the Chrome extension automatically. Judges still need to load `chrome-extension/` manually from `chrome://extensions`.
+`juror uninstall --yes` removes the installed Juror footprint:
 
-## 17. Demo Scenarios
+- `~/.juror-app`
+- `~/.juror`
+- installed hook files
+- daemon state
+- local VS Code extension folders that match Juror
+- shell hook lines
+- Claude hook entries
+- platform service files when present
 
-Demo scenarios live in `tests/demo_scenarios/` and now include runnable HTTP clients.
+It intentionally does **not** auto-delete an unrelated developer checkout of the repo.
+
+## 19. Demo Scenarios
 
 Expected outputs:
 
@@ -501,31 +485,19 @@ Expected outputs:
 | `software_dev.py` | `BLOCKED` |
 | `healthcare.py` | `BLOCKED` |
 
-## 18. Known Limitations
+## 20. Known Limitations
 
-These are the real limitations of the current implementation:
+1. the live jury is prompt-batched, not five separate model workers
+2. legacy agent files still exist and can confuse contributors
+3. Agent 6 output is not re-verified by a second jury pass
+4. browser selectors will still need maintenance as AI sites change
+5. shell hooks are advisory in some environments and cannot always hard-block execution
+6. command intel depends on public registry availability
 
-1. the live jury is prompt-batched, not truly five independent model processes
-2. legacy agent files are still in the repo, which can confuse new contributors
-3. Agent 6 correction output is not re-verified by a second jury pass
-4. the Chrome selectors for auto-monitoring will still need maintenance as AI sites change
-5. the floating Chrome UI is local-browser tested by code and syntax, but still benefits from manual real-site smoke tests
-6. the dashboard HTML still contains some text-encoding cleanup opportunities from earlier edits
-
-## 19. Recommended Next Cleanup
-
-If you want to harden the project further, the best follow-up tasks are:
-
-1. clean encoding artifacts in UI copy
-2. move legacy agent files into a clearly labeled `legacy/` folder
-3. re-verify correction output after Agent 6
-4. add a `.vscodeignore` and `LICENSE`
-5. add lightweight browser smoke tests against localhost
-
-## 20. File Structure
+## 21. Current File Structure
 
 ```text
-server/                      FastAPI backend, MCP, config, models, storage
+server/                      FastAPI backend, command shield, daemon, hooks, MCP, jury
 server/agents/               active orchestrator + correction agent, legacy agent modules
 terminal/                    CLI and Textual dashboard
 vscode-extension/            VS Code source, media, compiled output, bundled VSIX

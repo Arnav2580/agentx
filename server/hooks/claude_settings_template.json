@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.juror/hooks/intercept.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import json,sys,pathlib; d=json.load(sys.stdin); p=pathlib.Path.home()/'.juror'/'activity.log'; p.parent.mkdir(parents=True, exist_ok=True); p.open('a', encoding='utf-8').write('[POST] '+d.get('tool_input',{}).get('command','')[:80]+'\\n')\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}

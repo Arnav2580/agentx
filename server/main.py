@@ -1,13 +1,18 @@
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
+import aiosqlite
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
 from .agents.orchestrator import run_jury
+from .command_checker import check_command
 from .config import config
 from .database import get_history, init_db, save_verdict
 from .mcp_server import create_mcp_router
@@ -38,6 +43,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class CommandCheckRequest(BaseModel):
+    command: str
+    source: str = "unknown"
+    working_dir: Optional[str] = None
+    context: Optional[str] = None
 
 
 @app.get("/health")
@@ -86,6 +98,74 @@ async def get_stats():
     }
 
 
+@app.post("/check-command")
+async def check_command_endpoint(request: CommandCheckRequest):
+    if not request.command.strip():
+        return {"verdict": "SAFE", "reasons": [], "suggestion": ""}
+
+    result = await check_command(request.command, request.source)
+
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO command_checks
+            (command_preview, verdict, category, source, reasons, suggestion, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            (
+                request.command[:120],
+                result.verdict,
+                result.category,
+                request.source,
+                json.dumps(result.reasons),
+                result.suggestion,
+            ),
+        )
+        await db.commit()
+
+    return {
+        "verdict": result.verdict,
+        "confidence": result.confidence,
+        "reasons": result.reasons,
+        "suggestion": result.suggestion,
+        "category": result.category,
+        "packages_checked": [
+            {
+                "package": package.package,
+                "ecosystem": package.ecosystem,
+                "exists": package.exists,
+                "cve_count": package.cve_count,
+                "age_days": package.age_days,
+                "weekly_downloads": package.weekly_downloads,
+            }
+            for package in result.packages_checked
+        ],
+    }
+
+
+@app.get("/command-history")
+async def command_history(limit: int = 20):
+    async with aiosqlite.connect(config.DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM command_checks ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return {"history": [dict(row) for row in rows]}
+
+
+@app.post("/scan-workspace")
+async def trigger_workspace_scan():
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post("http://127.0.0.1:8001/scan")
+        return {"status": "success", "message": "Manual workspace scan completed successfully!"}
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to trigger scan: {e}. Is the daemon running?"}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     history = await get_history(limit=10)
@@ -116,43 +196,95 @@ async def dashboard():
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="refresh" content="10">
-<title>AI Hallucination Juror</title>
+<title>AI Hallucination Juror Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{background:#060a0f;color:#e2e8f0;font-family:'Courier New',monospace;padding:24px}}
-h1{{color:#00ff9d;font-size:20px;letter-spacing:2px;margin-bottom:4px}}
-.sub{{color:#475569;font-size:11px;margin-bottom:24px}}
-.cards{{display:flex;gap:16px;margin-bottom:24px;flex-wrap:wrap}}
-.card{{background:#0d1117;border:1px solid #ffffff10;border-radius:8px;padding:14px 18px;min-width:110px}}
-.cv{{font-size:26px;font-weight:900;margin-bottom:3px}}
-.cl{{color:#475569;font-size:9px;letter-spacing:1px}}
-.g{{color:#34d399}}.y{{color:#fbbf24}}.r{{color:#f87171}}.b{{color:#00d4ff}}
-table{{width:100%;border-collapse:collapse}}
-th{{color:#475569;font-size:9px;letter-spacing:1px;text-align:left;padding:6px 10px;border-bottom:1px solid #ffffff10}}
-td{{padding:7px 10px;font-size:11px;border-bottom:1px solid #ffffff06}}
-h2{{color:#94a3b8;font-size:11px;letter-spacing:2px;margin-bottom:10px}}
-a{{color:#00d4ff;font-size:10px;text-decoration:none}}
-.badge{{display:inline-block;background:#00ff9d10;border:1px solid #00ff9d30;color:#00ff9d;padding:1px 7px;border-radius:3px;font-size:9px;letter-spacing:1px}}
+  :root {{
+    --bg-base: #020617;
+    --bg-surface: #0f172a;
+    --primary: #38bdf8;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --border: #1e293b;
+  }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }}
+  body {{ 
+    background: radial-gradient(circle at top right, #1e1b4b 0%, var(--bg-base) 40%);
+    color: var(--text-main);
+    padding: 40px;
+    min-height: 100vh;
+  }}
+  .container {{ max-width: 1000px; margin: 0 auto; }}
+  .header {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; }}
+  .header-titles h1 {{ font-size: 28px; font-weight: 800; letter-spacing: -0.02em; background: linear-gradient(90deg, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+  .header-titles .sub {{ color: var(--text-muted); font-size: 13px; margin-top: 6px; }}
+  .badge {{ background: rgba(16, 185, 129, 0.15); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.3); padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 0 12px rgba(16, 185, 129, 0.2); }}
+  .badge::before {{ content: ''; width: 6px; height: 6px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite; }}
+  @keyframes pulse {{ 0% {{ opacity: 1; }} 50% {{ opacity: 0.4; }} 100% {{ opacity: 1; }} }}
+  
+  .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px; margin-bottom: 40px; }}
+  .card {{ background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 16px; padding: 24px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2); transition: transform 0.2s ease, box-shadow 0.2s ease; }}
+  .card:hover {{ transform: translateY(-2px); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3); border-color: rgba(255, 255, 255, 0.1); }}
+  .cv {{ font-size: 36px; font-weight: 800; margin-bottom: 8px; letter-spacing: -0.02em; }}
+  .cl {{ color: var(--text-muted); font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }}
+  
+  .g {{ color: var(--success); text-shadow: 0 0 20px rgba(16, 185, 129, 0.4); }}
+  .y {{ color: var(--warning); text-shadow: 0 0 20px rgba(245, 158, 11, 0.4); }}
+  .r {{ color: var(--danger); text-shadow: 0 0 20px rgba(239, 68, 68, 0.4); }}
+  .b {{ color: var(--primary); text-shadow: 0 0 20px rgba(56, 189, 248, 0.4); }}
+  
+  .table-container {{ background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2); }}
+  .table-header {{ padding: 20px 24px; border-bottom: 1px solid var(--border); }}
+  .table-header h2 {{ font-size: 15px; font-weight: 600; color: var(--text-main); }}
+  table {{ width: 100%; border-collapse: collapse; text-align: left; }}
+  th {{ color: var(--text-muted); font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; padding: 16px 24px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.2); }}
+  td {{ padding: 16px 24px; font-size: 13px; border-bottom: 1px solid rgba(255, 255, 255, 0.03); color: var(--text-main); }}
+  tr:last-child td {{ border-bottom: none; }}
+  tr:hover td {{ background: rgba(255, 255, 255, 0.02); }}
+  
+  .footer {{ margin-top: 30px; text-align: center; color: var(--text-muted); font-size: 12px; }}
+  .footer a {{ color: var(--primary); text-decoration: none; margin: 0 8px; transition: color 0.2s; }}
+  .footer a:hover {{ color: #fff; }}
 </style>
 </head>
 <body>
-<h1>⬡ AI HALLUCINATION JUROR</h1>
-<div class="sub">Multi-agent verification · Auto-refreshes every 10s · <span class="badge">LIVE</span></div>
-<div class="cards">
-  <div class="card"><div class="cv b">{stats["total"]}</div><div class="cl">TOTAL</div></div>
-  <div class="card"><div class="cv g">{stats["approved"]}</div><div class="cl">APPROVED</div></div>
-  <div class="card"><div class="cv y">{stats["flagged"]}</div><div class="cl">FLAGGED</div></div>
-  <div class="card"><div class="cv r">{stats["blocked"]}</div><div class="cl">BLOCKED</div></div>
-  <div class="card"><div class="cv r">{stats["rate"]}</div><div class="cl">BLOCK RATE</div></div>
-</div>
-<h2>RECENT VERDICTS</h2>
-<table>
-  <thead><tr><th>VERDICT</th><th>DOMAIN</th><th>FAILS</th><th>SOURCE</th><th>TIME</th></tr></thead>
-  <tbody>{rows}</tbody>
-</table>
-<div style="margin-top:20px;color:#1e293b;font-size:10px">
-  gemini-2.5-flash · batched 5-agent jury ·
-  <a href="/docs">API Docs</a> · <a href="/history">JSON History</a> · <a href="/stats">Stats</a>
+<div class="container">
+  <div class="header">
+    <div class="header-titles">
+      <h1>AI Hallucination Juror</h1>
+      <div class="sub">Multi-agent verification dashboard · gemini-2.5-flash</div>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: center;">
+      <button onclick="fetch('/scan-workspace', {method: 'POST'}).then(r=>r.json()).then(d=>alert(d.message))" style="background: var(--primary); color: #fff; border: none; padding: 6px 14px; border-radius: 999px; font-weight: 600; font-size: 12px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3);">Run Workspace Scan</button>
+      <div class="badge">SYSTEM LIVE</div>
+    </div>
+  </div>
+  
+  <div class="cards">
+    <div class="card"><div class="cv b">{stats["total"]}</div><div class="cl">Total Scans</div></div>
+    <div class="card"><div class="cv g">{stats["approved"]}</div><div class="cl">Approved</div></div>
+    <div class="card"><div class="cv y">{stats["flagged"]}</div><div class="cl">Flagged</div></div>
+    <div class="card"><div class="cv r">{stats["blocked"]}</div><div class="cl">Blocked</div></div>
+    <div class="card"><div class="cv r">{stats["rate"]}</div><div class="cl">Block Rate</div></div>
+  </div>
+  
+  <div class="table-container">
+    <div class="table-header"><h2>Recent Verdicts</h2></div>
+    <table>
+      <thead><tr><th>Verdict</th><th>Domain</th><th>Fails</th><th>Source</th><th>Time</th></tr></thead>
+      <tbody>{rows}</tbody>
+    </table>
+  </div>
+  
+  <div class="footer">
+    <span>Auto-refreshes every 10s</span>
+    <a href="/docs">API Docs</a>
+    <a href="/history">JSON History</a>
+    <a href="/stats">Stats</a>
+  </div>
 </div>
 </body>
 </html>"""

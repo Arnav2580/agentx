@@ -115,6 +115,7 @@ Write-Host "  Start server:   juror start" -ForegroundColor Cyan
 Write-Host "  Dashboard:      http://localhost:8000" -ForegroundColor Cyan
 Write-Host "  Terminal wrap:  juror run claude `"your prompt`"" -ForegroundColor Cyan
 Write-Host "  Shortcut:       Ctrl+Shift+J on any AI site" -ForegroundColor Cyan
+Write-Host "  Uninstall:      juror uninstall --yes" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Chrome extension (one-time, 30 seconds):" -ForegroundColor Yellow
 Write-Host "  1. chrome://extensions -> Developer Mode ON"

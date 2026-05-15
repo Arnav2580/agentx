@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { JurorClient, VerificationResult } from "./jurorClient";
+import { CommandCheckResult, JurorClient, VerificationResult } from "./jurorClient";
 
 export class JurorSidebarProvider implements vscode.WebviewViewProvider {
     private view?: vscode.WebviewView;
@@ -30,27 +30,52 @@ export class JurorSidebarProvider implements vscode.WebviewViewProvider {
         webviewView.webview.html = this.getHtml(webviewView.webview);
 
         webviewView.webview.onDidReceiveMessage(async (message) => {
-            if (message.command !== "verify") {
+            if (message.command === "verify") {
+                const editor = vscode.window.activeTextEditor;
+                if (!editor) {
+                    this.showError("Open a file or select text first.");
+                    return;
+                }
+
+                const content = editor.document.getText(editor.selection) || editor.document.getText();
+                try {
+                    const verdict = await this.client.verify(content, "vscode-sidebar");
+                    this.showVerdict(verdict);
+                } catch (error) {
+                    const messageText = error instanceof Error ? error.message : "Cannot connect to Juror server";
+                    this.showError(messageText);
+                }
                 return;
             }
 
-            const editor = vscode.window.activeTextEditor;
-            if (!editor) {
-                this.showError("Open a file or select text first.");
+            if (message.command === "refreshCommands") {
+                await this.postCommandHistory();
                 return;
             }
 
-            const content = editor.document.getText(editor.selection) || editor.document.getText();
-            try {
-                const verdict = await this.client.verify(content, "vscode-sidebar");
-                this.showVerdict(verdict);
-            } catch (error) {
-                const messageText = error instanceof Error ? error.message : "Cannot connect to Juror server";
-                this.showError(messageText);
+            if (message.command === "checkCommand") {
+                const command = await vscode.window.showInputBox({
+                    prompt: "Enter a terminal command to inspect with Juror",
+                    placeHolder: "npm install lodash"
+                });
+                if (!command?.trim()) {
+                    return;
+                }
+
+                this.view?.webview.postMessage({ type: "command-check-loading", command });
+                try {
+                    const result = await this.client.checkCommand(command.trim(), "vscode_manual");
+                    await this.postCommandCheck(command.trim(), result);
+                    await this.postCommandHistory();
+                } catch (error) {
+                    const messageText = error instanceof Error ? error.message : "Cannot connect to Juror server";
+                    this.view?.webview.postMessage({ type: "command-check-error", message: messageText });
+                }
             }
         });
 
         void this.postHealth();
+        void this.postCommandHistory();
     }
 
     public showVerdict(verdict: VerificationResult): void {
@@ -68,6 +93,19 @@ export class JurorSidebarProvider implements vscode.WebviewViewProvider {
     private async postHealth(): Promise<void> {
         const healthy = await this.client.checkHealth();
         this.view?.webview.postMessage({ type: "health", healthy });
+    }
+
+    private async postCommandHistory(): Promise<void> {
+        try {
+            const history = await this.client.getCommandHistory(8);
+            this.view?.webview.postMessage({ type: "command-history", history: history.history });
+        } catch {
+            this.view?.webview.postMessage({ type: "command-history", history: [] });
+        }
+    }
+
+    private async postCommandCheck(command: string, result: CommandCheckResult): Promise<void> {
+        this.view?.webview.postMessage({ type: "command-check-result", command, data: result });
     }
 
     private getHtml(webview: vscode.Webview): string {

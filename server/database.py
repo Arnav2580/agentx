@@ -26,6 +26,20 @@ async def init_db() -> None:
             )
             """
         )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS command_checks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                command_preview TEXT,
+                verdict TEXT,
+                category TEXT,
+                source TEXT,
+                reasons TEXT,
+                suggestion TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
         await db.commit()
 
 

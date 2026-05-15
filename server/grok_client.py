@@ -1,9 +1,21 @@
+import asyncio
 import json
+import random
+import time
 from typing import Any, Dict
 
 import httpx
 
 from .config import config
+
+class GeminiRateLimitError(RuntimeError):
+    def __init__(self, message: str, retry_after_seconds: int | None = None) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
+_RATE_LIMIT_UNTIL = 0.0
+_grok_semaphore = asyncio.Semaphore(1)
 
 
 def grok_available() -> bool:
@@ -16,8 +28,17 @@ async def call_grok(
     json_mode: bool = False,
     response_json_schema: Dict[str, Any] | None = None,
 ) -> str:
+    global _RATE_LIMIT_UNTIL
+
     if not grok_available():
         raise RuntimeError("Gemini client unavailable")
+
+    if _RATE_LIMIT_UNTIL and time.time() < _RATE_LIMIT_UNTIL:
+        wait_seconds = max(1, int(_RATE_LIMIT_UNTIL - time.time()))
+        raise GeminiRateLimitError(
+            f"Gemini is temporarily rate-limited. Try again in about {wait_seconds} seconds.",
+            retry_after_seconds=wait_seconds,
+        )
 
     request_body: Dict[str, Any] = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -38,10 +59,54 @@ async def call_grok(
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(url, headers=headers, json=request_body)
-        response.raise_for_status()
-        payload = response.json()
+    async with _grok_semaphore:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            max_retries = 8
+            base_delay = 4.0
+            
+            for attempt in range(max_retries):
+                response = await client.post(url, headers=headers, json=request_body)
+                if response.status_code == 429 and attempt < max_retries - 1:
+                    retry_after_header = response.headers.get("Retry-After")
+                    retry_after = None
+                    if retry_after_header:
+                        try:
+                            retry_after = max(1, int(float(retry_after_header)))
+                        except ValueError:
+                            retry_after = None
+                    
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 2.0)
+                    if retry_after:
+                        delay = max(delay, retry_after)
+                        
+                    await asyncio.sleep(delay)
+                    continue
+                    
+                if response.status_code == 429:
+                    retry_after_header = response.headers.get("Retry-After")
+                    retry_after = None
+                    if retry_after_header:
+                        try:
+                            retry_after = max(1, int(float(retry_after_header)))
+                        except ValueError:
+                            retry_after = None
+    
+                    payload = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+                    google_message = ""
+                    if isinstance(payload, dict):
+                        google_message = payload.get("error", {}).get("message", "").strip()
+                    wait_seconds = retry_after or int(base_delay * (2 ** (max_retries - 1)))
+                    _RATE_LIMIT_UNTIL = time.time() + wait_seconds
+                    friendly = google_message or "Gemini rate limit reached."
+                    raise GeminiRateLimitError(
+                        f"{friendly} Try again in about {wait_seconds} seconds.",
+                        retry_after_seconds=wait_seconds,
+                    )
+                    
+                response.raise_for_status()
+                payload = response.json()
+                _RATE_LIMIT_UNTIL = 0.0
+                break
 
     candidates = payload.get("candidates") or []
     if not candidates:
