@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src 'nonce-{{nonce}}';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" nonce="{{nonce}}" href="{{styleUri}}">
+  <title>Juror Panel</title>
+</head>
+<body>
+  <div class="shell">
+    <div class="header">
+      <div class="eyebrow">AI HALLUCINATION JUROR</div>
+      <button id="verify-button" class="verify-button">Verify current file / selection</button>
+    </div>
+    <div id="content" class="content">
+      <div class="idle">
+        Waiting for a verification run.
+      </div>
+    </div>
+  </div>
+  <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
+</body>
+</html>

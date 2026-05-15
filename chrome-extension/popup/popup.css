@@ -1,0 +1,53 @@
+body {
+  margin: 0;
+  min-width: 280px;
+  background: #060a0f;
+  color: #e2e8f0;
+  font-family: Consolas, "Courier New", monospace;
+}
+
+.popup-shell {
+  padding: 14px;
+}
+
+.title {
+  color: #00ff9d;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.status {
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  padding: 10px;
+  background: #0b1220;
+  color: #cbd5e1;
+}
+
+.status[data-state="ok"] {
+  border-color: rgba(52, 211, 153, 0.35);
+}
+
+.status[data-state="error"] {
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #fca5a5;
+}
+
+.action {
+  width: 100%;
+  margin-top: 10px;
+  border: 1px solid rgba(0, 255, 157, 0.35);
+  border-radius: 6px;
+  background: rgba(0, 255, 157, 0.1);
+  color: #00ff9d;
+  font: inherit;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.hint {
+  margin-top: 10px;
+  color: #94a3b8;
+  font-size: 11px;
+}

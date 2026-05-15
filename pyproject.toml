@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "juror-ai"
+version = "1.0.0"
+description = "AI Hallucination Juror - Multi-agent verification MCP server"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.0",
+    "openai>=1.30.0",
+    "mcp>=1.0.0",
+    "aiosqlite>=0.20.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.26.0",
+    "textual>=0.50.0",
+    "rich>=13.0.0",
+    "click>=8.1.0",
+]
+
+[project.scripts]
+juror = "terminal.cli:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["server", "terminal"]

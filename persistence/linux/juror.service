@@ -1,0 +1,14 @@
+[Unit]
+Description=AI Hallucination Juror MCP Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=juror start --no-tui
+Restart=always
+RestartSec=3
+StandardOutput=append:%h/.juror/juror.log
+StandardError=append:%h/.juror/juror-error.log
+
+[Install]
+WantedBy=default.target

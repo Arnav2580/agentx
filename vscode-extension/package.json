@@ -1,0 +1,92 @@
+{
+  "name": "ai-hallucination-juror",
+  "displayName": "AI Hallucination Juror",
+  "description": "6-agent AI jury that verifies outputs from AI coding assistants",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "juror.verifySelection",
+        "title": "Juror: Verify Selected Text"
+      },
+      {
+        "command": "juror.verifyFile",
+        "title": "Juror: Verify Current File"
+      },
+      {
+        "command": "juror.openPanel",
+        "title": "Juror: Open Jury Panel"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "juror.verifySelection",
+          "when": "editorHasSelection",
+          "group": "juror"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "juror.verifyFile",
+        "key": "ctrl+shift+j",
+        "mac": "cmd+shift+j"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "juror-sidebar",
+          "title": "AI Hallucination Juror",
+          "icon": "media/shield.svg"
+        }
+      ]
+    },
+    "views": {
+      "juror-sidebar": [
+        {
+          "type": "webview",
+          "id": "juror.panel",
+          "name": "Jury Panel"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AI Hallucination Juror",
+      "properties": {
+        "juror.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "Juror MCP server URL"
+        },
+        "juror.autoVerify": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-verify files modified in the workspace"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.0.0"
+  }
+}

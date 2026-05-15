@@ -1,0 +1,115 @@
+body {
+  margin: 0;
+  background: #060a0f;
+  color: #e2e8f0;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+}
+
+.shell {
+  padding: 12px;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.eyebrow {
+  color: #00ff9d;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.verify-button {
+  border: 1px solid #00ff9d55;
+  background: #00ff9d14;
+  color: #00ff9d;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.content {
+  margin-top: 12px;
+}
+
+.idle,
+.error {
+  border: 1px solid #1e293b;
+  background: #0b1220;
+  border-radius: 6px;
+  padding: 12px;
+  color: #94a3b8;
+}
+
+.error {
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #fca5a5;
+}
+
+.verdict-banner {
+  border: 1px solid;
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.verdict-main {
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.verdict-details {
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+.agent {
+  border: 1px solid #1e293b;
+  background: #0b1220;
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+
+.agent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-name {
+  color: #cbd5e1;
+}
+
+.verdict-pass {
+  color: #34d399;
+}
+
+.verdict-fail {
+  color: #f87171;
+}
+
+.verdict-uncertain {
+  color: #fbbf24;
+}
+
+.issue {
+  margin-top: 6px;
+  color: #94a3b8;
+}
+
+.correction {
+  border: 1px solid rgba(244, 114, 182, 0.25);
+  background: rgba(244, 114, 182, 0.08);
+  border-radius: 6px;
+  padding: 10px;
+  white-space: pre-wrap;
+  color: #fbcfe8;
+}
