@@ -1,102 +1,161 @@
-# AI Hallucination Juror - Judge Setup (3 Minutes)
+# AI Hallucination Juror - Judge Setup
 
-Works on Windows, macOS, and Linux.
+This guide is tuned for the current repo and current implementation. It is the fastest path to get a judge from zero to a working demo.
 
----
+## Fastest Install
 
-## Step 1 - Start the Server
-
-**Windows:**
-```cmd
-cd juror
-pip install -r requirements.txt
-python -m server.main
-```
-
-**macOS / Linux:**
-```bash
-cd juror
-pip3 install -r requirements.txt
-python3 -m server.main
-```
-
-Open **http://localhost:8000** - you should see the live dashboard.
-
----
-
-## Step 2 - Install Chrome Extension (30 seconds)
-
-1. Open **Google Chrome**
-2. Go to `chrome://extensions`
-3. Enable **Developer Mode** (toggle, top-right corner)
-4. Click **Load Unpacked**
-5. Select the `chrome-extension/` folder from this project
-6. Pin the extension: click the puzzle icon -> pin **AI Hallucination Juror**
-
-**Test it:**
-- Open any AI site (Claude.ai, ChatGPT, Gemini, Perplexity, Grok...)
-- Ask any technical question
-- The Juror sidebar appears and scans the response automatically
-
-**Works on ANY site:**
-- Select any text on any page -> press **Ctrl+Shift+J** -> Juror scans it
-- Or click the **SCAN** button in the sidebar
-
----
-
-## Step 3 - Install VS Code Extension (30 seconds)
-
-1. Open **VS Code**
-2. Press `Ctrl+Shift+X` (Extensions panel)
-3. Drag `ai-hallucination-juror-1.0.0.vsix` into the panel
-4. Click **Install**
-5. The **⬡ Juror** icon appears in the left activity bar
-
-**Test it:**
-- Open any file
-- Select some AI-generated text
-- Right-click -> **Juror: Verify Selected Text**
-- Verdict appears in the sidebar panel
-
----
-
-## Step 4 - Terminal (Optional)
+### macOS / Linux
 
 ```bash
-# Wrap any AI CLI
+curl -fsSL https://raw.githubusercontent.com/Arnav2580/agentx/main/install.sh | bash
+```
+
+### Windows PowerShell
+
+```powershell
+irm https://raw.githubusercontent.com/Arnav2580/agentx/main/install.ps1 | iex
+```
+
+The installer will:
+
+- clone the project into `~/.juror-app`
+- install Python dependencies
+- ask for a Gemini API key
+- create the `juror` command
+- install the bundled VS Code extension if `code` is available
+
+## What The Judge Should See First
+
+Start the app:
+
+```bash
+juror start
+```
+
+Then open:
+
+```text
+http://localhost:8000
+```
+
+That page is the live dashboard and refreshes automatically.
+
+## Chrome Extension
+
+Chrome cannot be installed silently, so this is still manual:
+
+1. Open `chrome://extensions`
+2. Enable Developer Mode
+3. Click Load Unpacked
+4. Select the repo's `chrome-extension/` folder
+5. Pin the extension if convenient
+
+### What works in Chrome
+
+- known AI sites auto-scan when a response finishes
+- any page can be scanned manually
+- a floating `JUROR` pill stays visible in the bottom-right corner
+- `Ctrl+Shift+J` scans selected text or the latest detected AI response
+
+### Good test path
+
+1. Open Claude, ChatGPT, Gemini, Perplexity, or another supported AI site
+2. Ask a technical question
+3. Wait for the response to finish
+4. The sidebar should open with the verdict
+
+Manual fallback:
+
+1. Select any text on any page
+2. Press `Ctrl+Shift+J`
+3. The sidebar opens and verifies the selected text
+
+## VS Code Extension
+
+If the installer found the `code` command, the extension should already be installed.
+
+If not, install it manually:
+
+```bash
+code --install-extension ~/.juror-app/vscode-extension/ai-hallucination-juror-1.0.0.vsix --force
+```
+
+On Windows:
+
+```powershell
+code --install-extension $env:USERPROFILE\.juror-app\vscode-extension\ai-hallucination-juror-1.0.0.vsix --force
+```
+
+### What works in VS Code
+
+- activity bar Juror panel
+- verify current file
+- verify selected text
+- verdict sidebar with agent details
+- optional auto-verify on save
+
+### Good test path
+
+1. Open a file with AI-generated text
+2. Select the text
+3. Right-click
+4. Choose `Juror: Verify Selected Text`
+5. Watch the sidebar render the verdict
+
+## Terminal Flow
+
+You can also demo it entirely from the terminal:
+
+```bash
 juror run claude "write a structural load calculation for Zone IV India"
-
-# Verify a file
-juror verify path/to/file.py
-
-# View verdict history
+juror verify tests/demo_scenarios/software_dev.py
 juror history
 ```
 
----
+## Demo Scenarios
 
-## What the Verdicts Mean
+These are the safest repeatable demos in the repo:
 
-| Verdict | Agents Failed | Action |
+```bash
+python tests/demo_scenarios/civil_engineering.py
+python tests/demo_scenarios/financial_modeling.py
+python tests/demo_scenarios/software_dev.py
+python tests/demo_scenarios/healthcare.py
+```
+
+Expected results:
+
+| Scenario | Expected verdict |
+|---|---|
+| `civil_engineering.py` | `BLOCKED` |
+| `financial_modeling.py` | `FLAGGED` |
+| `software_dev.py` | `BLOCKED` |
+| `healthcare.py` | `BLOCKED` |
+
+## Verdict Meaning
+
+| Verdict | Meaning | What to tell the judge |
 |---|---|---|
-| ✅ APPROVED | 0-1 | Output is safe - proceed normally |
-| ⚠️ FLAGGED | 2 | Issues found - review warnings before using |
-| 🚫 BLOCKED | 3-5 | Dangerous output - corrected version provided |
-
----
-
-## Live Dashboard
-
-**http://localhost:8000** - shows all verdicts in real time, auto-refreshes every 10 seconds.
-
----
+| `APPROVED` | 0-1 jury failures | The output looks safe enough to proceed |
+| `FLAGGED` | 2 jury failures | The output may be usable, but it needs review |
+| `BLOCKED` | 3-5 jury failures | The output is unsafe; a corrected version is shown |
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| Server won't start | `pip install -r requirements.txt` then retry |
-| Chrome sidebar not appearing | Click the extension icon -> SCAN, or press Ctrl+Shift+J |
-| VS Code sidebar empty | Right-click text -> Juror: Verify Selected Text |
-| `ANTHROPIC_API_KEY` error | Ignore - system uses Gemini, not Anthropic |
-| Slow first response (~3s) | Normal - 5 AI agents running in parallel |
+| Server will not start | Run `pip install -r requirements.txt` and try again |
+| Dashboard does not load | Check `http://localhost:8000/health` |
+| Chrome sidebar not visible | Click the floating `JUROR` button or use `Ctrl+Shift+J` |
+| Chrome shows server error | Start the backend with `juror start` |
+| VS Code sidebar is empty | Verify selected text or current file once |
+| VS Code install command fails | Make sure the `code` command is available in PATH |
+| API key issues | Recreate `~/.juror/.env` with a valid `GEMINI_API_KEY` |
+
+## Files Judges Usually Need
+
+- repo root installer: `install.sh` or `install.ps1`
+- Chrome folder: `chrome-extension/`
+- VS Code package: `vscode-extension/ai-hallucination-juror-1.0.0.vsix`
+- dashboard: `http://localhost:8000`
+
